@@ -1,0 +1,158 @@
+# Nur manuell oder bei Aenderungen an diesem Test auf dem Arbeitsbranch.
+# Lesende Tests ohne Sprachkosten; verfolgen auch den bereits gestarteten GPU-Testkernel.
+name: Live-Verbindungstest
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/2711612c-filmcreation]
+    paths: [.github/workflows/live-verbindungstest.yml]
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r 1_system/requirements.txt "kaggle>=1.8.4,<2" six
+      - name: ElevenLabs (nur Guthaben)
+        env:
+          ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
+          ELEVENLABS_API_KEY_1: ${{ secrets.ELEVENLABS_API_KEY_1 }}
+          ELEVENLABS_API_KEY_2: ${{ secrets.ELEVENLABS_API_KEY_2 }}
+          ELEVENLABS_API_KEY_3: ${{ secrets.ELEVENLABS_API_KEY_3 }}
+          ELEVENLABS_API_KEY_4: ${{ secrets.ELEVENLABS_API_KEY_4 }}
+          ELEVENLABS_API_KEY_5: ${{ secrets.ELEVENLABS_API_KEY_5 }}
+          ELEVENLABS_API_KEY_6: ${{ secrets.ELEVENLABS_API_KEY_6 }}
+        run: |
+          python - <<'PY'
+          import importlib, sys, requests
+          mod = importlib.import_module('1_system.audio.elevenlabs_pool')
+          pool = mod.ElevenLabsPool()
+          report = pool.check_credits(0)
+          print(f"::notice::ElevenLabs: keys={len(pool.keys)}, erfolgreich={sum(s.ok for s in report.keys)}, Guthaben={report.total_remaining}")
+          for status in report.keys:
+              if not status.ok:
+                  print(f'::notice::ElevenLabs Fehlerkategorie: {status.error}')
+          for entry in pool.keys:
+              try:
+                  r = requests.get('https://api.elevenlabs.io/v1/voices', headers={'xi-api-key': mod._secret(entry)}, timeout=20)
+                  print(f'::notice::ElevenLabs Stimmenliste: HTTP {r.status_code}, Stimmen={len(r.json().get("voices", [])) if r.status_code == 200 else 0}')
+              except Exception:
+                  print('::notice::ElevenLabs Stimmenliste nicht erreichbar')
+          if not report.keys or not any(s.ok for s in report.keys):
+              for entry in pool.keys:
+                  try:
+                      r = requests.get('https://api.elevenlabs.io/v1/user/subscription', headers={'xi-api-key': mod._secret(entry)}, timeout=20)
+                      detail = r.json().get('detail', {})
+                      status = detail.get('status', '') if isinstance(detail, dict) else ''
+                      allowed = {'missing_permissions', 'invalid_api_key', 'invalid_api_key_or_token', 'unauthorized', 'insufficient_permissions'}
+                      print('::notice::ElevenLabs Diagnose: HTTP ' + str(r.status_code) + ', Kategorie ' + (status if status in allowed else 'unbekannt'))
+                  except Exception:
+                      print('::notice::ElevenLabs Diagnoseantwort nicht auswertbar')
+              print('::error::ElevenLabs Guthabenabfrage fehlgeschlagen; Key-Name und Rechte pruefen.')
+              sys.exit(1)
+          PY
+      - name: Kaggle (eigene Kernel auflisten)
+        id: kaggle_auth
+        if: always()
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          python - <<'PY'
+          import importlib, sys
+          client = importlib.import_module('1_system.kaggle_bridge.kaggle_client').KaggleClient()
+          import re
+          key_type = ('token' if client.key.startswith('KGAT_') else
+                      'legacy-hex' if re.fullmatch(r'[a-fA-F0-9]{32}', client.key) else
+                      'missing' if not client.key else 'other')
+          print(f'::notice::Kaggle Zugang: username_gesetzt={bool(client.username)}, key_typ={key_type}')
+          try:
+              client.ensure_credentials()
+              result = client._run(['kernels', 'list', '-m'], timeout=180, check=False)
+              print(f'::notice::Kaggle: Kernel-Liste Exitcode {result.returncode}')
+              if result.returncode:
+                  text = result.output.lower()
+                  categories = ['401', '403', '404', 'unauthorized', 'forbidden', 'unrecognized arguments', 'invalid choice', 'connectionerror', 'sslerror', 'validationerror']
+                  import re
+                  kinds = re.findall(r'(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception))(?::|$)', result.output)
+                  print('::notice::Kaggle Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text) + '; Ausnahmetypen: ' + ', '.join(kinds))
+                  print('::error::Kaggle Authentifizierung oder Kernel-Liste fehlgeschlagen.')
+                  sys.exit(1)
+          except Exception as exc:
+              print(f'::error::Kaggle-Test fehlgeschlagen: {type(exc).__name__}')
+              sys.exit(1)
+          PY
+      - name: Kaggle GPU Rauchtest Ergebnis nachverfolgen
+        if: always() && steps.kaggle_auth.outcome == 'success'
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          python - <<'PY2'
+          import importlib, tempfile, sys
+          from pathlib import Path
+          mod = importlib.import_module('1_system.kaggle_bridge.kaggle_client')
+          client = mod.KaggleClient()
+          slug = f'{client.username}/filmcreation-gpu-smoke-43855654214'
+          try:
+              state = client.kernel_status(slug)
+              print(f'::notice::Kaggle GPU Testkernelstatus: {state.status}')
+              if not state.ok:
+                  print('::error::Kaggle GPU Test noch nicht erfolgreich abgeschlossen.')
+                  sys.exit(1)
+              with tempfile.TemporaryDirectory() as directory:
+                  client.download_output(slug, Path(directory))
+                  logs = list(Path(directory).rglob('*.log'))
+                  if not any('GPU_SMOKE_OK' in p.read_text(errors='replace') for p in logs):
+                      raise RuntimeError('GPU Testausgabe fehlt')
+                  print('::notice::Kaggle GPU Rauchtest erfolgreich')
+          except Exception as exc:
+              print(f'::error::Kaggle GPU Test Ergebnis nicht verfuegbar: {type(exc).__name__}')
+              sys.exit(1)
+          PY2
+      - name: Roblox Open Cloud
+        if: always()
+        env:
+          ROBLOX_API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+          ROBLOX_USER_ID: ${{ secrets.ROBLOX_USER_ID }}
+        run: |
+          python - <<'PY'
+          import importlib, sys, requests
+          module = importlib.import_module('1_system.roblox_api.open_cloud')
+          client = module.RobloxClient()
+          try:
+              try:
+                  probe = requests.post(module.TOOLBOX_SEARCH, headers={'x-api-key': client.api_key}, json={'query': 'street lamp', 'searchCategoryType': 'Model', 'maxPageSize': 1}, timeout=20, allow_redirects=False)
+                  categories = ('permission', 'scope', 'api key', 'access denied', 'cloudflare', 'captcha', 'blocked', 'ip address', 'restricted')
+                  text = probe.text.lower()
+                  print(f'::notice::Roblox Suche diagnostisch: HTTP {probe.status_code}, Merkmale={",".join(x for x in categories if x in text)}')
+              except requests.RequestException:
+                  print('::notice::Roblox Suche diagnostisch nicht erreichbar')
+              try:
+                  response = client._request('POST', module.TOOLBOX_SEARCH, auth=False, json_body={'query': 'street lamp', 'searchCategoryType': 'Model', 'maxPageSize': 1, 'maxPriceCents': 0})
+                  print(f'::notice::Roblox anonyme Suche: HTTP {response.status_code}, Ergebnisse={len(response.json().get("creatorStoreAssets", []))}')
+              except module.RobloxApiError as exc:
+                  print(f'::notice::Roblox anonyme Suche: HTTP {exc.status}')
+              report = client.verify()
+              fields = ('search_ok', 'metadata_ok', 'delivery_ok', 'thumbnails_ok')
+              print('::notice::Roblox: ' + ', '.join(f'{key}={report[key]}' for key in fields))
+              if not all(report[key] for key in fields):
+                  text = ' '.join(report['errors']).lower()
+                  categories = ['401', '403', '404', '429', 'creator-store', 'asset-delivery', 'metadaten']
+                  print('::notice::Roblox Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text))
+                  for item in report['errors']:
+                      label = item.split(':', 1)[0]
+                      if label in ('Creator-Store', 'Asset-Metadaten', 'Asset-Delivery', 'Thumbnails'):
+                          codes = [c for c in ('401', '403', '404', '429', '500', '503') if c in item]
+                          print(f'::notice::Roblox {label}: HTTP {",".join(codes) or "unbekannt"}')
+                  print('::error::Roblox: Mindestens ein Endpunkt fehlgeschlagen (Key, Scopes oder Asset-Zugriff pruefen).')
+                  sys.exit(1)
+          except Exception as exc:
+              print(f'::error::Roblox-Test fehlgeschlagen: {type(exc).__name__}')
+              sys.exit(1)
+          PY

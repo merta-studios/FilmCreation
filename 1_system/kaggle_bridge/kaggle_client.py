@@ -117,10 +117,16 @@ class KaggleClient:
         env = dict(os.environ)
         if self.config_dir is not None:
             env["KAGGLE_CONFIG_DIR"] = str(self.config_dir)
+        if self.key.startswith("KGAT_"):
+            env["KAGGLE_API_TOKEN"] = self.key
+            env.pop("KAGGLE_KEY", None)
+            env.pop("KAGGLE_USERNAME", None)
         return env
 
-    def ensure_credentials(self) -> Path:
-        """Schreibt bei Bedarf kaggle.json (Rechte 600) und gibt den Pfad zurueck."""
+    def ensure_credentials(self) -> Optional[Path]:
+        """Legacy-Key-Datei anlegen; API-Tokens nur im Prozess-Environment verwenden."""
+        if self.key.startswith("KGAT_"):
+            return None
         if self.config_dir is not None:
             target_dir = Path(self.config_dir)
         else:

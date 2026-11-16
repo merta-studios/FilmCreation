@@ -347,7 +347,14 @@ class ElevenLabsPool:
         except requests.RequestException:
             return KeyStatus(masked, False, error="Netzwerkfehler bei Guthaben-Abfrage")
         if response.status_code == 401:
-            return KeyStatus(masked, False, error="Key ungueltig oder gesperrt (401)")
+            try:
+                detail = response.json().get("detail", {})
+                missing_permissions = isinstance(detail, dict) and detail.get("status") == "missing_permissions"
+            except (ValueError, AttributeError):
+                missing_permissions = False
+            if missing_permissions:
+                return KeyStatus(masked, False, error="Key hat keine Berechtigung fuer die Guthaben-Abfrage (401)")
+            return KeyStatus(masked, False, error="Key abgelehnt (401); Key und Berechtigungen pruefen")
         if response.status_code == 429:
             return KeyStatus(masked, False, error="Rate-Limit (429) - spaeter erneut versuchen")
         if response.status_code != 200:

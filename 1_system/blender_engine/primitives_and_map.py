@@ -985,8 +985,9 @@ def build_spec(entries: Sequence[dict], world: WorldBuilder) -> list[str]:
             if model_name not in models:
                 raise KeyError(f"custom_model '{model_name}' fehlt in custom_models.py "
                                f"(verfuegbar: {sorted(models)})")
-            models[model_name](world, pos=entry.get("pos", (0, 0, 0)),
-                               rotation=entry.get("rotation", (0, 0, 0)), **params)
+            pos = params.pop("pos", (0, 0, 0))
+            rotation = params.pop("rotation", (0, 0, 0))
+            models[model_name](world, pos=pos, rotation=rotation, **params)
         elif shape == "creator_store":
             world.import_model(name, Path(entry["path"]), pos=entry.get("pos", (0, 0, 0)),
                                scale=float(entry.get("scale", 1.0)),

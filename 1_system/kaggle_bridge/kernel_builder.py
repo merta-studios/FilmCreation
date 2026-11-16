@@ -7,9 +7,8 @@ Der Kernel ist ein **privates Kaggle-Script**, das genau drei Dinge tut:
 3. die Shots auf zwei Worker aufteilen - je eine T4 - und Blender rechnen lassen.
 
 Danach liegen die MP4s plus ``render_manifest.json`` in ``/kaggle/working/shots``
-und koennen mit ``kaggle kernels output`` heruntergeladen werden. Optional ruft
-der Kernel per ``workflow_dispatch`` den Folge-Workflow auf, damit der Schnitt
-sofort startet (statt auf das 15-Minuten-Polling zu warten).
+und koennen mit ``kaggle kernels output`` heruntergeladen werden. Der GitHub-Runner
+holt das Ergebnis durch Polling; es werden keine Callback-Tokens im Kernel gespeichert.
 
 Die Datei ``main.py`` wird hier als Text erzeugt - so bleibt der komplette
 Kernel-Ablauf im Repo versioniert und testbar (``py_compile`` in CI).
@@ -54,7 +53,6 @@ SAMPLES = %%SAMPLES%%
 QUALITY = "%%QUALITY%%"
 WORKERS = %%WORKERS%%
 EXTRA_ARGS = %%EXTRA_ARGS%%
-CALLBACK = %%CALLBACK%%
 
 WORK = Path("/kaggle/working")
 REPO = WORK / "repo"
@@ -213,32 +211,6 @@ def merge_manifests():
     return merged
 
 
-def notify_github(status):
-    if not CALLBACK or not CALLBACK.get("repo"):
-        log("Kein Callback konfiguriert")
-        return
-    token = CALLBACK.get("token") or ""
-    if not token:
-        log("Callback ohne Token - wird uebersprungen (Workflow pollt stattdessen)")
-        return
-    url = (f"https://api.github.com/repos/{CALLBACK['repo']}/actions/workflows/"
-           f"{CALLBACK.get('workflow', '2-finish-film.yml')}/dispatches")
-    payload = {"ref": CALLBACK.get("ref", "main"),
-               "inputs": {**CALLBACK.get("inputs", {}), **status}}
-    request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
-                                     headers={"Authorization": f"Bearer {token}",
-                                              "Accept": "application/vnd.github+json",
-                                              "Content-Type": "application/json",
-                                              "X-GitHub-Api-Version": "2022-11-28"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            log(f"Callback gesendet: HTTP {response.status}")
-    except urllib.error.HTTPError as error:
-        log(f"Callback fehlgeschlagen: HTTP {error.code} {error.read()[:200]!r}")
-    except Exception as error:  # noqa: BLE001 - Callback darf den Render nicht kippen
-        log(f"Callback-Fehler: {type(error).__name__}: {error}")
-
-
 def main():
     started = time.time()
     WORK.mkdir(parents=True, exist_ok=True)
@@ -303,7 +275,6 @@ def main():
     (WORK / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=2),
                                      encoding="utf-8")
     log(f"Fertig: {len(rendered)} Shots, fehlend: {missing}")
-    notify_github({"status": "success" if not missing else "failed"})
     if missing:
         raise SystemExit(f"Shots fehlen: {missing}")
     return 0
@@ -334,7 +305,6 @@ def build_kernel(out_dir: Path, kernel_slug: str, repo_url: str, commit: str,
         "%%QUALITY%%": quality or "",
         "%%WORKERS%%": str(max(1, int(workers))),
         "%%EXTRA_ARGS%%": json.dumps(list(extra_args or [])),
-        "%%CALLBACK%%": json.dumps(callback or {}, ensure_ascii=False),
         "%%BLENDER_TARBALL%%": BLENDER_TARBALL,
         "%%KERNEL_SLUG%%": kernel_slug,
     }
@@ -391,19 +361,15 @@ def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
     parser.add_argument("--callback-repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--callback-workflow", default="2-finish-film.yml")
     parser.add_argument("--callback-ref", default=os.environ.get("GITHUB_REF_NAME", "main"))
-    parser.add_argument("--callback-token", default=os.environ.get("GH_CALLBACK_TOKEN", ""))
+    parser.add_argument("--callback-token", default="", help="veraltet; wird nicht an Kaggle uebertragen")
     args = parser.parse_args(argv)
     username = os.environ.get("KAGGLE_USERNAME", "")
     if not username:
         raise SystemExit("KAGGLE_USERNAME fehlt")
     slug = args.kernel_slug or kernel_slug_for(username, os.environ.get("GITHUB_RUN_ID", "local"))
-    callback = {"repo": args.callback_repo, "workflow": args.callback_workflow,
-                "ref": args.callback_ref, "token": args.callback_token,
-                "inputs": {"run_id": os.environ.get("GITHUB_RUN_ID", ""),
-                           "kaggle_kernel": slug}} if args.callback_repo else {}
     folder = build_kernel(args.out_dir, slug, args.repo_url, args.commit,
                           args.dataset_slug, args.shots, args.samples, args.quality,
-                          args.workers, callback=callback, username=username)
+                          args.workers, username=username)
     print(f"Kernel-Ordner: {folder} ({slug})")
     return 0
 

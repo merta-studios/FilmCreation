@@ -120,3 +120,65 @@ def test_prepare_asset_brand_is_flagged(tmp_path):
     result = prepare.prepare_asset(FakeClient(), 1002, tmp_path, convert=False)
     assert result["license_ok"] is False
     assert result["slot"] == "HatAttachment"
+
+
+def test_creator_store_search_uses_documented_post_contract(tmp_path, monkeypatch):
+    client = open_cloud.RobloxClient(api_key='fake', cache_dir=tmp_path)
+    calls = []
+    def request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        from types import SimpleNamespace
+        return SimpleNamespace(json=lambda: {'creatorStoreAssets': [
+            {'asset': {'id': 123, 'name': 'Street lamp', 'description': 'A lamp'},
+             'creator': {'userId': 42, 'name': 'Artist'}}]})
+    monkeypatch.setattr(client, '_request', request)
+    results = client.search_creator_store('lamp', limit=3)
+    assert results[0]['id'] == 123 and results[0]['creator_id'] == 42
+    method, url, options = calls[0]
+    assert method == 'POST' and url.endswith('/assets:search')
+    assert options['json_body'] == {'query': 'lamp', 'maxPageSize': 3,
+                                    'searchCategoryType': 'Model', 'maxPriceCents': 0}
+
+
+def test_roblox_api_key_is_not_followed_on_redirect(tmp_path):
+    from types import SimpleNamespace
+    class Session:
+        def __init__(self):
+            self.headers = {}
+            self.calls = []
+        def request(self, method, url, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(status_code=302, headers={}, text='')
+    session = Session()
+    client = open_cloud.RobloxClient(api_key='fake-secret', cache_dir=tmp_path, session=session)
+    with pytest.raises(open_cloud.RobloxApiError):
+        client._request('GET', open_cloud.ASSET_DELIVERY + '/123')
+    assert session.calls[0]['allow_redirects'] is False
+
+
+def test_delivery_json_error_is_not_misreported_as_success(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    client = open_cloud.RobloxClient(api_key='fake', cache_dir=tmp_path)
+    monkeypatch.setattr(client, '_request', lambda *a, **kw: SimpleNamespace(
+        headers={'Content-Type': 'application/json'},
+        json=lambda: {'errors': [{'code': 409, 'message': 'not usable'}]}))
+    with pytest.raises(open_cloud.RobloxApiError, match='409'):
+        client.asset_content(123)
+
+
+def test_verify_checks_delivery_with_current_search_results(tmp_path, monkeypatch):
+    client = open_cloud.RobloxClient(api_key='fake', cache_dir=tmp_path)
+    monkeypatch.setattr(client, 'search_creator_store', lambda *a, **kw: [
+        {'id': 10, 'name': 'first'}, {'id': 20, 'name': 'second'}])
+    monkeypatch.setattr(client, 'asset_info', lambda _: object())
+    monkeypatch.setattr(client, 'thumbnail_url', lambda _: 'https://example.test/image')
+    calls = []
+    def content(asset_id):
+        calls.append(asset_id)
+        if asset_id == 10:
+            raise open_cloud.RobloxApiError('not available')
+        return b'x' * 101, 'application/octet-stream'
+    monkeypatch.setattr(client, 'asset_content', content)
+    report = client.verify()
+    assert report['search_ok'] and report['delivery_ok'] and not report['errors']
+    assert calls == [10, 20]

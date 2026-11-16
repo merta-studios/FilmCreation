@@ -482,7 +482,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "start_frame": 0, "end_frame": 24 * 5, "frames": 24 * 5,
                          "title": shot.get("title", "")}
                         for shot in film.shots]}
-        if not args.still and not args.preview_storyboard:
+        if not args.still and not args.preview_storyboard and not args.list_shots:
             raise SystemExit("Ohne Timeline sind nur Standbilder moeglich "
                              "(--still / --preview-storyboard)")
 

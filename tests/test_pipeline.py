@@ -180,3 +180,41 @@ def test_real_ffmpeg_master_and_assembly(tmp_path):
     info = subprocess.run([ffmpeg, "-hide_banner", "-i", str(plain)],
                           capture_output=True, text=True).stderr
     assert "1080x1920" in info and "24 fps" in info
+
+
+def test_credit_check_without_configured_voices_does_not_claim_render_ready(monkeypatch, capsys):
+    film = film_loader.load_film()
+    film.voices.clear()
+    monkeypatch.setattr(generate.film_loader, 'load_film', lambda _: film)
+    checks = []
+
+    class CreditPool:
+        keys = ['fake']
+
+        def check_credits(self, amount, voice):
+            checks.append((amount, voice))
+            return SimpleNamespace(ok=True, summary=lambda: 'Guthaben ok')
+
+    monkeypatch.setattr(generate.pool_module, 'ElevenLabsPool', CreditPool)
+    monkeypatch.delenv('GITHUB_STEP_SUMMARY', raising=False)
+    assert generate.credits_only(Path('.')) == 1
+    assert checks and checks[0][0] > 0 and checks[0][1] is None
+    assert 'Stimmen nicht konfiguriert' in capsys.readouterr().err
+    with pytest.raises(generate.TimelineError):
+        generate.validate_script(film.script, film.voices)
+
+
+def test_list_shots_without_audio_timeline(tmp_path, capsys):
+    scene_builder = importlib.import_module('1_system.blender_engine.scene_builder')
+    assert scene_builder.main(['--list-shots', '--timeline', str(tmp_path / 'missing.json')]) == 0
+    assert 'Shot  1' in capsys.readouterr().out
+
+
+def test_custom_model_passes_position_and_rotation_once():
+    primitives = importlib.import_module('1_system.blender_engine.primitives_and_map')
+    calls = []
+    world = SimpleNamespace(custom_models={'tower': lambda world, **kw: calls.append(kw)})
+    assert primitives.build_spec([{'type': 'custom_model', 'model': 'tower',
+                                   'name': 'clock', 'pos': (1, 2, 3),
+                                   'rotation': (0, 0, 1), 'params': {'height': 7}}], world) == ['clock']
+    assert calls == [{'pos': (1, 2, 3), 'rotation': (0, 0, 1), 'height': 7}]

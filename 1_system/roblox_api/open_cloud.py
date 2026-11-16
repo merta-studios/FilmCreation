@@ -2,8 +2,9 @@
 
 Was die Roblox-APIs wirklich hergeben (Stand der offiziellen Doku)
 ------------------------------------------------------------------
-* **Creator Store / Toolbox:** ``GET https://apis.roblox.com/toolbox-service/v2/assets``
-  mit ``search``, ``maxPageSize``, ``pageToken``. Braucht einen Open-Cloud-Key.
+* **Creator Store / Toolbox:** ``POST https://apis.roblox.com/toolbox-service/v2/assets:search``
+  mit JSON-Feldern ``query``, ``searchCategoryType`` und ``maxPageSize``.
+  Benoetigt den Open-Cloud-Scope ``creator-store-product:read``.
   Liefert Metadaten (ID, Name, Creator, Asset-Typ), **nicht** die Modelldatei.
 * **Asset-Metadaten:** ``GET https://apis.roblox.com/assets/v1/assets/{assetId}``
   (Scope ``asset:read``).
@@ -49,7 +50,7 @@ ROBLOX_API = "https://apis.roblox.com"
 THUMBNAIL_API = "https://thumbnails.roblox.com"
 ASSET_DELIVERY = f"{ROBLOX_API}/asset-delivery-api/v1/assetId"
 ASSETS_API = f"{ROBLOX_API}/assets/v1/assets"
-TOOLBOX_SEARCH = f"{ROBLOX_API}/toolbox-service/v2/assets"
+TOOLBOX_SEARCH = f"{ROBLOX_API}/toolbox-service/v2/assets:search"
 CACHE_DIR_DEFAULT = Path("assets_cache/roblox")
 
 #: Marken und Franchises, die aus rechtlichen Gruenden nie eingebaut werden
@@ -194,6 +195,7 @@ class RobloxClient:
         return headers
 
     def _request(self, method: str, url: str, *, params: Optional[dict] = None,
+                 json_body: Optional[dict] = None,
                  auth: bool = True, stream: bool = False) -> requests.Response:
         if self.offline:
             raise RobloxApiError("Offline-Modus aktiv", 0, url)
@@ -205,7 +207,7 @@ class RobloxClient:
                 response = self.session.request(method, url, params=params,
                                                 headers=self._headers(auth),
                                                 timeout=self.timeout, stream=stream,
-                                                allow_redirects=True)
+                                                json=json_body, allow_redirects=not auth)
             except requests.RequestException as exc:
                 last_error = exc
                 time.sleep(1.5 * (attempt + 1))
@@ -215,6 +217,10 @@ class RobloxClient:
                 wait = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else 2.0 * (attempt + 1)
                 time.sleep(min(wait, 20.0))
                 continue
+            if auth and 300 <= response.status_code < 400:
+                self.stats["errors"] += 1
+                raise RobloxApiError("Authentifizierter Redirect abgelehnt (Schutz des API-Keys)",
+                                     response.status_code, url)
             if response.status_code in (401, 403, 404):
                 self.stats["errors"] += 1
                 raise RobloxApiError(
@@ -255,22 +261,22 @@ class RobloxClient:
         if not query.strip():
             raise ValueError("Suchbegriff fehlt")
         limit = max(1, min(50, int(limit)))
-        params = {"search": query.strip(), "maxPageSize": limit}
-        if category:
-            params["category"] = category
+        params = {"query": query.strip(), "maxPageSize": limit,
+                  "searchCategoryType": category or "Model",
+                  "maxPriceCents": max(0, int(max_price * 100))}
         if page_token:
             params["pageToken"] = page_token
 
         def fetch() -> dict:
-            response = self._request("GET", TOOLBOX_SEARCH, params=params)
+            response = self._request("POST", TOOLBOX_SEARCH, json_body=params)
             try:
                 return response.json()
             except ValueError as exc:
                 raise RobloxApiError("Creator-Store-Antwort ist kein JSON") from exc
 
-        data = self._cached_json(f"toolbox:{query}:{category}:{limit}:{page_token}", fetch)
+        data = self._cached_json(f"toolbox-v2:{query}:{category}:{limit}:{page_token}:{max_price}", fetch)
         results: list[dict] = []
-        for item in data.get("assets") or data.get("data") or []:
+        for item in data.get("creatorStoreAssets") or data.get("assets") or data.get("data") or []:
             asset_id = item.get("id") or item.get("assetId") or item.get("asset", {}).get("id")
             if not asset_id:
                 continue
@@ -283,10 +289,12 @@ class RobloxClient:
     def _parse_catalog_entry(self, item: dict, asset_id: int) -> AssetInfo:
         name = str(item.get("name") or item.get("asset", {}).get("name") or "")
         creator = item.get("creator") or {}
-        creator_id = int(creator.get("id") or creator.get("creatorTargetId") or 0)
+        creator_id = int(creator.get("id") or creator.get("creatorTargetId") or
+                         creator.get("userId") or creator.get("groupId") or 0)
         creator_name = str(creator.get("name") or "")
+        asset = item.get("asset") or {}
         asset_type = str(item.get("assetType") or item.get("type") or "")
-        description = str(item.get("description") or "")
+        description = str(item.get("description") or asset.get("description") or "")
         price = float(item.get("price") or 0.0)
         safe, note = check_license(name, creator_id, description, asset_type)
         return AssetInfo(asset_id=asset_id, name=name, asset_type=asset_type,
@@ -337,7 +345,10 @@ class RobloxClient:
                 raise RobloxApiError("Asset-Delivery liefert unlesbares JSON") from exc
             location = payload.get("location") or payload.get("url")
             if not location:
-                raise RobloxApiError("Asset-Delivery liefert keine Download-URL")
+                codes = [str(e.get("code")) for e in payload.get("errors", [])
+                         if isinstance(e, dict) and isinstance(e.get("code"), int)]
+                suffix = f" (Roblox-Fehlercode {', '.join(codes)})" if codes else ""
+                raise RobloxApiError("Asset-Delivery liefert keine Download-URL" + suffix)
             cdn = self._request("GET", location, auth=False, stream=True)
             return cdn.content, cdn.headers.get("Content-Type", "")
         return response.content, content_type
@@ -451,8 +462,9 @@ class RobloxClient:
         if not self.api_key:
             report["errors"].append("ROBLOX_API_KEY fehlt")
             return report
+        hits: list[dict] = []
         try:
-            hits = self.search_creator_store("street lamp", limit=1)
+            hits = self.search_creator_store("street lamp", limit=5)
             report["search_ok"] = bool(hits)
             report["sample"] = hits[0]["name"] if hits else ""
         except RobloxApiError as exc:
@@ -462,11 +474,20 @@ class RobloxClient:
             report["metadata_ok"] = True
         except RobloxApiError as exc:
             report["errors"].append(f"Asset-Metadaten: {exc} {exc.hint}")
-        try:
-            data, _ = self.asset_content(1818)
-            report["delivery_ok"] = len(data) > 100
-        except RobloxApiError as exc:
-            report["errors"].append(f"Asset-Delivery: {exc} {exc.hint}")
+        delivery_error = None
+        for hit in hits:
+            try:
+                data, _ = self.asset_content(int(hit["id"]))
+                if len(data) > 100:
+                    report["delivery_ok"] = True
+                    break
+            except RobloxApiError as exc:
+                delivery_error = exc
+        if not report["delivery_ok"]:
+            if delivery_error:
+                report["errors"].append(f"Asset-Delivery: {delivery_error} {delivery_error.hint}")
+            else:
+                report["errors"].append("Asset-Delivery: kein geeigneter Suchtreffer oder leerer Inhalt")
         try:
             report["thumbnails_ok"] = bool(self.thumbnail_url(1818))
         except (RobloxApiError, requests.RequestException) as exc:

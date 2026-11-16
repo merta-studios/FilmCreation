@@ -194,13 +194,11 @@ jobs:
         env:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
-          GH_CALLBACK_TOKEN: ${{ secrets.GH_CALLBACK_TOKEN }}
         run: |
-          pip install kaggle
+          pip install "kaggle>=1.8.4,<2" six
           mkdir -p render_output
           args=(--shots "${{ inputs.shots }}"
-                --timeout-minutes "${{ inputs.kaggle_timeout_minutes }}"
-                --callback-token "$GH_CALLBACK_TOKEN")
+                --timeout-minutes "${{ inputs.kaggle_timeout_minutes }}")
           if [ -n "${{ steps.target.outputs.quality }}" ] && \
              [ "${{ steps.target.outputs.quality }}" != "auto" ]; then
             args+=(--quality "${{ steps.target.outputs.quality }}")
