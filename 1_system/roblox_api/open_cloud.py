@@ -462,8 +462,9 @@ class RobloxClient:
         if not self.api_key:
             report["errors"].append("ROBLOX_API_KEY fehlt")
             return report
+        hits: list[dict] = []
         try:
-            hits = self.search_creator_store("street lamp", limit=1)
+            hits = self.search_creator_store("street lamp", limit=5)
             report["search_ok"] = bool(hits)
             report["sample"] = hits[0]["name"] if hits else ""
         except RobloxApiError as exc:
@@ -473,11 +474,20 @@ class RobloxClient:
             report["metadata_ok"] = True
         except RobloxApiError as exc:
             report["errors"].append(f"Asset-Metadaten: {exc} {exc.hint}")
-        try:
-            data, _ = self.asset_content(1818)
-            report["delivery_ok"] = len(data) > 100
-        except RobloxApiError as exc:
-            report["errors"].append(f"Asset-Delivery: {exc} {exc.hint}")
+        delivery_error = None
+        for hit in hits:
+            try:
+                data, _ = self.asset_content(int(hit["id"]))
+                if len(data) > 100:
+                    report["delivery_ok"] = True
+                    break
+            except RobloxApiError as exc:
+                delivery_error = exc
+        if not report["delivery_ok"]:
+            if delivery_error:
+                report["errors"].append(f"Asset-Delivery: {delivery_error} {delivery_error.hint}")
+            else:
+                report["errors"].append("Asset-Delivery: kein geeigneter Suchtreffer oder leerer Inhalt")
         try:
             report["thumbnails_ok"] = bool(self.thumbnail_url(1818))
         except (RobloxApiError, requests.RequestException) as exc:
