@@ -56,7 +56,9 @@ jobs:
               if result.returncode:
                   text = result.output.lower()
                   categories = ['401', '403', '404', 'unauthorized', 'forbidden', 'unrecognized arguments', 'invalid choice', 'connectionerror', 'sslerror', 'validationerror']
-                  print('::notice::Kaggle Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text))
+                  import re
+                  kinds = re.findall(r'(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception))(?::|$)', result.output)
+                  print('::notice::Kaggle Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text) + '; Ausnahmetypen: ' + ', '.join(kinds))
                   print('::error::Kaggle Authentifizierung oder Kernel-Liste fehlgeschlagen.')
                   sys.exit(1)
           except Exception as exc:
@@ -80,6 +82,11 @@ jobs:
                   text = ' '.join(report['errors']).lower()
                   categories = ['401', '403', '404', '429', 'creator-store', 'asset-delivery', 'metadaten']
                   print('::notice::Roblox Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text))
+                  for item in report['errors']:
+                      label = item.split(':', 1)[0]
+                      if label in ('Creator-Store', 'Asset-Metadaten', 'Asset-Delivery', 'Thumbnails'):
+                          codes = [c for c in ('401', '403', '404', '429', '500', '503') if c in item]
+                          print(f'::notice::Roblox {label}: HTTP {",".join(codes) or "unbekannt"}')
                   print('::error::Roblox: Mindestens ein Endpunkt fehlgeschlagen (Key, Scopes oder Asset-Zugriff pruefen).')
                   sys.exit(1)
           except Exception as exc:
