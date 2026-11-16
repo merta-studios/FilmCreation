@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -r 1_system/requirements.txt kaggle six
+      - run: pip install -r 1_system/requirements.txt "kaggle>=1.8.4,<2" six
       - name: ElevenLabs (nur Guthaben)
         env:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
@@ -29,14 +29,24 @@ jobs:
           ELEVENLABS_API_KEY_6: ${{ secrets.ELEVENLABS_API_KEY_6 }}
         run: |
           python - <<'PY'
-          import importlib, sys
-          pool = importlib.import_module('1_system.audio.elevenlabs_pool').ElevenLabsPool()
+          import importlib, sys, requests
+          mod = importlib.import_module('1_system.audio.elevenlabs_pool')
+          pool = mod.ElevenLabsPool()
           report = pool.check_credits(0)
           print(f"::notice::ElevenLabs: keys={len(pool.keys)}, erfolgreich={sum(s.ok for s in report.keys)}, Guthaben={report.total_remaining}")
           for status in report.keys:
               if not status.ok:
                   print(f'::notice::ElevenLabs Fehlerkategorie: {status.error}')
           if not report.keys or not any(s.ok for s in report.keys):
+              for entry in pool.keys:
+                  try:
+                      r = requests.get('https://api.elevenlabs.io/v1/user/subscription', headers={'xi-api-key': mod._secret(entry)}, timeout=20)
+                      detail = r.json().get('detail', {})
+                      status = detail.get('status', '') if isinstance(detail, dict) else ''
+                      allowed = {'missing_permissions', 'invalid_api_key', 'invalid_api_key_or_token', 'unauthorized', 'insufficient_permissions'}
+                      print('::notice::ElevenLabs Diagnose: HTTP ' + str(r.status_code) + ', Kategorie ' + (status if status in allowed else 'unbekannt'))
+                  except Exception:
+                      print('::notice::ElevenLabs Diagnoseantwort nicht auswertbar')
               print('::error::ElevenLabs Guthabenabfrage fehlgeschlagen; Key-Name und Rechte pruefen.')
               sys.exit(1)
           PY

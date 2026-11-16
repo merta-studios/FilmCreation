@@ -107,7 +107,7 @@ jobs:
             echo "Kein Kaggle-Kernel angegeben - ueberspringe Download." 
             exit 0
           fi
-          pip install kaggle six
+          pip install "kaggle>=1.8.4,<2" six
           python -m 1_system.kaggle_bridge.parallel_render download \
             --kernel "$KERNEL_SLUG" --out-dir render_output
 

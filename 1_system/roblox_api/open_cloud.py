@@ -49,7 +49,7 @@ ROBLOX_API = "https://apis.roblox.com"
 THUMBNAIL_API = "https://thumbnails.roblox.com"
 ASSET_DELIVERY = f"{ROBLOX_API}/asset-delivery-api/v1/assetId"
 ASSETS_API = f"{ROBLOX_API}/assets/v1/assets"
-TOOLBOX_SEARCH = f"{ROBLOX_API}/toolbox-service/v2/assets"
+TOOLBOX_SEARCH = f"{ROBLOX_API}/toolbox-service/v2/assets:search"
 CACHE_DIR_DEFAULT = Path("assets_cache/roblox")
 
 #: Marken und Franchises, die aus rechtlichen Gruenden nie eingebaut werden
@@ -194,6 +194,7 @@ class RobloxClient:
         return headers
 
     def _request(self, method: str, url: str, *, params: Optional[dict] = None,
+                 json_body: Optional[dict] = None,
                  auth: bool = True, stream: bool = False) -> requests.Response:
         if self.offline:
             raise RobloxApiError("Offline-Modus aktiv", 0, url)
@@ -205,7 +206,7 @@ class RobloxClient:
                 response = self.session.request(method, url, params=params,
                                                 headers=self._headers(auth),
                                                 timeout=self.timeout, stream=stream,
-                                                allow_redirects=True)
+                                                json=json_body, allow_redirects=True)
             except requests.RequestException as exc:
                 last_error = exc
                 time.sleep(1.5 * (attempt + 1))
@@ -255,22 +256,22 @@ class RobloxClient:
         if not query.strip():
             raise ValueError("Suchbegriff fehlt")
         limit = max(1, min(50, int(limit)))
-        params = {"search": query.strip(), "maxPageSize": limit}
-        if category:
-            params["category"] = category
+        params = {"query": query.strip(), "maxPageSize": limit,
+                  "searchCategoryType": category or "Model",
+                  "maxPriceCents": max(0, int(max_price * 100))}
         if page_token:
             params["pageToken"] = page_token
 
         def fetch() -> dict:
-            response = self._request("GET", TOOLBOX_SEARCH, params=params)
+            response = self._request("POST", TOOLBOX_SEARCH, json_body=params)
             try:
                 return response.json()
             except ValueError as exc:
                 raise RobloxApiError("Creator-Store-Antwort ist kein JSON") from exc
 
-        data = self._cached_json(f"toolbox:{query}:{category}:{limit}:{page_token}", fetch)
+        data = self._cached_json(f"toolbox-v2:{query}:{category}:{limit}:{page_token}:{max_price}", fetch)
         results: list[dict] = []
-        for item in data.get("assets") or data.get("data") or []:
+        for item in data.get("creatorStoreAssets") or data.get("assets") or data.get("data") or []:
             asset_id = item.get("id") or item.get("assetId") or item.get("asset", {}).get("id")
             if not asset_id:
                 continue
@@ -283,10 +284,12 @@ class RobloxClient:
     def _parse_catalog_entry(self, item: dict, asset_id: int) -> AssetInfo:
         name = str(item.get("name") or item.get("asset", {}).get("name") or "")
         creator = item.get("creator") or {}
-        creator_id = int(creator.get("id") or creator.get("creatorTargetId") or 0)
+        creator_id = int(creator.get("id") or creator.get("creatorTargetId") or
+                         creator.get("userId") or creator.get("groupId") or 0)
         creator_name = str(creator.get("name") or "")
+        asset = item.get("asset") or {}
         asset_type = str(item.get("assetType") or item.get("type") or "")
-        description = str(item.get("description") or "")
+        description = str(item.get("description") or asset.get("description") or "")
         price = float(item.get("price") or 0.0)
         safe, note = check_license(name, creator_id, description, asset_type)
         return AssetInfo(asset_id=asset_id, name=name, asset_type=asset_type,

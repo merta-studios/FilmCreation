@@ -120,3 +120,21 @@ def test_prepare_asset_brand_is_flagged(tmp_path):
     result = prepare.prepare_asset(FakeClient(), 1002, tmp_path, convert=False)
     assert result["license_ok"] is False
     assert result["slot"] == "HatAttachment"
+
+
+def test_creator_store_search_uses_documented_post_contract(tmp_path, monkeypatch):
+    client = open_cloud.RobloxClient(api_key='fake', cache_dir=tmp_path)
+    calls = []
+    def request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        from types import SimpleNamespace
+        return SimpleNamespace(json=lambda: {'creatorStoreAssets': [
+            {'asset': {'id': 123, 'name': 'Street lamp', 'description': 'A lamp'},
+             'creator': {'userId': 42, 'name': 'Artist'}}]})
+    monkeypatch.setattr(client, '_request', request)
+    results = client.search_creator_store('lamp', limit=3)
+    assert results[0]['id'] == 123 and results[0]['creator_id'] == 42
+    method, url, options = calls[0]
+    assert method == 'POST' and url.endswith('/assets:search')
+    assert options['json_body'] == {'query': 'lamp', 'maxPageSize': 3,
+                                    'searchCategoryType': 'Model', 'maxPriceCents': 0}
