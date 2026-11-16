@@ -139,18 +139,20 @@ def build_tiktok_subtitles(timeline: dict, output_path: Path,
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
+    def safe(word):
+        return str(word).replace(chr(92), '').replace('{', '(').replace('}', ')').replace('\n', ' ')
     for group in groups:
-        start = float(group[0]["start_seconds"])
-        end = float(group[-1]["end_seconds"])
-        # Aktives Wort: gelb (karaoke-artig, Wort fuer Wort)
-        parts = []
-        for w in group:
-            ws = _ass_time(float(w["start_seconds"]))
-            we = _ass_time(float(w["end_seconds"]))
-            parts.append(f"{{\\k{int((float(w['end_seconds']) - float(w['start_seconds'])) * 100)}}}"
-                         f"{str(w['word']).replace(chr(92), chr(92)*2).replace('{', '(').replace('}', ')')}")
-        text = " ".join(parts)
-        lines.append(f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},TikTok,,0,0,0,,{text}")
+        # Each word has its own event: pauses are not incorrectly assigned to
+        # neighbouring words as they would be with duration-only karaoke tags.
+        for index, word in enumerate(group):
+            start, end = float(word['start_seconds']), float(word['end_seconds'])
+            if end <= start:
+                continue
+            parts = []
+            for j, other in enumerate(group):
+                colour = '&H00FFFF&' if index == j else '&HFFFFFF&'
+                parts.append('{\\c' + colour + '}' + safe(other['word']))
+            lines.append(f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},TikTok,,0,0,0,,{' '.join(parts)}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return output_path

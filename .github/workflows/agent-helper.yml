@@ -39,8 +39,27 @@ jobs:
           ELEVENLABS_API_KEY_10: ${{ secrets.ELEVENLABS_API_KEY_10 }}
           ESTIMATED_CHARS: ${{ inputs.estimated_chars }}
         run: python -m 1_system.audio.elevenlabs_pool --estimated-chars "$ESTIMATED_CHARS"
-      - name: Fehlende Funktion melden
-        if: inputs.mode != 'check-credits'
+      - name: Blender und Vorschau-Abhängigkeiten installieren
+        if: inputs.mode == 'preview-storyboard'
         run: |
-          echo '::error::3D-Asset-Inspektion und Storyboard-Rendering sind noch nicht implementiert.'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libxrender1 libxi6 libxxf86vm1 libxfixes3 libgl1 libsm6 libxkbcommon0
+          pip install 'bpy==4.2.0' pillow
+      - name: Demo-Storyboard rendern
+        if: inputs.mode == 'preview-storyboard'
+        run: |
+          python -m 1_system.tools.validate_film --strict
+          mkdir -p preview_output
+          for shot in 1 2 3 4; do
+            python -m 1_system.blender_engine.scene_builder --shot "$shot" --frames 48 --width 270 --height 480 --samples 4 --still --output "preview_output/shot_${shot}.png"
+          done
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'preview-storyboard'
+        with:
+          name: demo-storyboard-${{ github.run_id }}
+          path: preview_output/
+      - name: Asset-Inspektion nicht verfügbar
+        if: inputs.mode == 'inspect-assets'
+        run: |
+          echo '::error::3D-Asset-Inspektion und Anprobe sind noch nicht implementiert.'
           exit 1
