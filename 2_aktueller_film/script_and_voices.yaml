@@ -1,114 +1,38 @@
-# ============================================================================
-#  SPRECHTEXT  -  Wort fuer Wort, mit Sprechern und Atempausen
-#  speaker: haupt_erzaehler  = die eine Erzaehlerstimme (spricht fast alles)
-#           neb_stimmen     = extrem seltene Einwuerfe (0-3 im ganzen Film)
-#  pause_after: Atempause in Sekunden NACH dem Segment (0-6)
-#  emotion: Feintuning der Stimme (ruhig, traurig, fluestern, hoffnungsvoll ...)
-# ============================================================================
-titel: "In dieser Stadt hat jeder nur 10.000 Schritte"
-
+titel: "In dieser Stadt leuchtet dein Name"
 segments:
   - id: 1
     speaker: haupt_erzaehler
     emotion: ruhig
     text: >
-      In dieser Stadt hat jeder Mensch genau zehntausend Schritte.
-      Wenn der Zähler über deinem Kopf auf null steht, bleibst du stehen.
-      Für immer.
+      In dieser Stadt bekommt jede Laterne jeden Abend genau einen Namen. Wenn jemand den Namen laut sagt, leuchtet sie bis zum Morgen. Wenn nicht, bleibt die Straße dunkel. Und niemand fragt, warum manche Fenster schon früh schwarz werden.
     pause_after: 0.7
-
   - id: 2
     speaker: haupt_erzaehler
-    emotion: sachlich
+    emotion: traurig
     text: >
-      Deshalb sparen alle. Sie fahren mit dem Rollstuhl zum Briefkasten,
-      mit dem Auto zur Bäckerei und sogar zum Kiosk an der Ecke.
-    pause_after: 0.5
-
+      Ich bin Nuri. Meine Laterne ist seit drei Abenden aus. Mama sagt, sie spricht meinen Namen doch ständig. Aber meistens ruft sie nur: Schuhe! Bus! Beeil dich! Das klingt nicht wie ein Name. In der Schule zählt Herr Bender die Lichter am Ende der Straße. Er sagt, die Stadt sei sicher, solange genug davon brennen. Dabei schaut er nie nach, wer im Dunkeln steht.
+    pause_after: 0.6
   - id: 3
     speaker: haupt_erzaehler
-    emotion: ruhig
+    emotion: hoffnungsvoll
     text: >
-      Ich heiße Mika und bin elf. Meine Mutter hat noch dreihundert Schritte.
-      Ich habe neuntausend. Jeden Morgen laufe ich zu Fuß zur Schule,
-      damit unser Geld für ihre Medikamente reicht.
+      Heute kommt Oma mit mir nach Hause. Sie geht langsam, und ich passe mich ihrem Schritt an. Vor dem Laden bleibt sie stehen. Über uns hängt ihre Laterne, hell und golden. Sie sagt: Nuri. Nur einmal. Das Licht springt an. Dann zeigt sie auf meine dunkle Straße. Und wer sagt deinen Namen dort?
     pause_after: 0.6
-
   - id: 4
     speaker: haupt_erzaehler
-    emotion: traurig
+    emotion: ruhig
     text: >
-      In der Schule sagen sie, ich rieche nach Regen. Ich bin der Junge,
-      der laufen muss.
-    pause_after: 0.4
-
-  - id: 5
-    speaker: neb_lina
-    emotion: streng
-    text: >
-      Warum läufst du überhaupt? Bist du zu arm für einen Rollstuhl?
+      Ich weiß es nicht. Mama sitzt am Küchentisch, zwischen ungeöffneten Briefen und kaltem Tee. Ich will schon wieder Beeil dich sagen. Stattdessen setze ich mich hin. Mama, ich bin Nuri. Sie sieht mich an, als würde sie mich zum ersten Mal heute wirklich sehen.
     pause_after: 0.6
-
+  - id: 5
+    speaker: haupt_erzaehler
+    emotion: hoffnungsvoll
+    text: >
+      Dann nimmt sie meine Hand. Nuri, sagt sie, und draußen geht eine Laterne nach der anderen an. Die Nachbarn öffnen ihre Türen. Einer spricht einen Namen, dann der nächste. Unsere Straße klingt plötzlich nach Menschen, die einander bemerken.
+    pause_after: 0.8
   - id: 6
     speaker: haupt_erzaehler
-    emotion: ruhig
+    emotion: warm
     text: >
-      Ich sage nichts. Ich zähle. Neuntausend werden achttausend,
-      dann sechstausend. Meine Mutter zählt am Fenster und lächelt mir zu.
-    pause_after: 0.6
-
-  - id: 7
-    speaker: neb_mutter
-    emotion: hoffnungsvoll
-    text: >
-      Ich möchte die Stadt noch einmal sehen. Nur einmal. Von der alten Uhr aus.
-    pause_after: 0.8
-
-  - id: 8
-    speaker: haupt_erzaehler
-    emotion: traurig
-    text: >
-      Dreihundert Schritte. Der Weg zur Uhr kostet vierhundert. Sie würde in
-      der Mitte stehen bleiben und nie wieder gehen.
-    pause_after: 0.7
-
-  - id: 9
-    speaker: haupt_erzaehler
-    emotion: hoffnungsvoll
-    text: >
-      Also hole ich den Rollstuhl. Ein Rollstuhl frisst keine Schritte.
-      Ich schiebe sie den ganzen Hügel hinauf, und die Stadt wird langsam golden.
-    pause_after: 0.5
-
-  - id: 10
-    speaker: haupt_erzaehler
-    emotion: ruhig
-    text: >
-      Auf dem Weg lachen wir. Sie erzählt von früher, als die Häuser noch schief
-      waren und die Straßenbahnen flogen. Ich glaube ihr jedes Wort.
-    pause_after: 0.6
-
-  - id: 11
-    speaker: haupt_erzaehler
-    emotion: ruhig
-    text: >
-      Dann stehen wir unter der Uhr. Ihr Zähler blinkt. Dreihundert.
-      Und er bewegt sich nicht.
-    pause_after: 0.8
-
-  - id: 12
-    speaker: haupt_erzaehler
-    emotion: hoffnungsvoll
-    text: >
-      Sie steht auf. Zehn Schritte, mehr braucht sie nicht, nur zu mir.
-      In dieser Stadt zählt kein Schritt, den du für einen anderen Menschen gehst.
-    pause_after: 0.8
-
-  - id: 13
-    speaker: haupt_erzaehler
-    emotion: hoffnungsvoll
-    text: >
-      Ihr Zähler springt auf neuntausendneunhundert. Sie lacht und weint
-      gleichzeitig. Seitdem schiebe ich sie jeden Morgen zur Uhr.
-      Es kostet mich nichts. Nur den Weg zurück.
+      Am Morgen zählt Herr Bender die Lichter. Diesmal zählt er auch die Menschen darunter. Oma wartet am Gartentor. Mama wartet neben ihr. Und ich gehe nicht schneller, nur weil die Stadt es eilig hat. In dieser Stadt reicht ein Name, um eine Straße heller zu machen. Man muss ihn nur wirklich meinen.
     pause_after: 1.0
