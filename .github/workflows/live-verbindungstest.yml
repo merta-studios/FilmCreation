@@ -33,6 +33,9 @@ jobs:
           pool = importlib.import_module('1_system.audio.elevenlabs_pool').ElevenLabsPool()
           report = pool.check_credits(0)
           print(f"::notice::ElevenLabs: keys={len(pool.keys)}, erfolgreich={sum(s.ok for s in report.keys)}, Guthaben={report.total_remaining}")
+          for status in report.keys:
+              if not status.ok:
+                  print(f'::notice::ElevenLabs Fehlerkategorie: {status.error}')
           if not report.keys or not any(s.ok for s in report.keys):
               print('::error::ElevenLabs Guthabenabfrage fehlgeschlagen; Key-Name und Rechte pruefen.')
               sys.exit(1)
@@ -51,6 +54,9 @@ jobs:
               result = client._run(['kernels', 'list', '-m'], timeout=180, check=False)
               print(f'::notice::Kaggle: Kernel-Liste Exitcode {result.returncode}')
               if result.returncode:
+                  text = result.output.lower()
+                  categories = ['401', '403', '404', 'unauthorized', 'forbidden', 'unrecognized arguments', 'invalid choice', 'connectionerror', 'sslerror', 'validationerror']
+                  print('::notice::Kaggle Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text))
                   print('::error::Kaggle Authentifizierung oder Kernel-Liste fehlgeschlagen.')
                   sys.exit(1)
           except Exception as exc:
@@ -71,6 +77,9 @@ jobs:
               fields = ('search_ok', 'metadata_ok', 'delivery_ok', 'thumbnails_ok')
               print('::notice::Roblox: ' + ', '.join(f'{key}={report[key]}' for key in fields))
               if not all(report[key] for key in fields):
+                  text = ' '.join(report['errors']).lower()
+                  categories = ['401', '403', '404', '429', 'creator-store', 'asset-delivery', 'metadaten']
+                  print('::notice::Roblox Fehlerindikatoren: ' + ', '.join(c for c in categories if c in text))
                   print('::error::Roblox: Mindestens ein Endpunkt fehlgeschlagen (Key, Scopes oder Asset-Zugriff pruefen).')
                   sys.exit(1)
           except Exception as exc:
