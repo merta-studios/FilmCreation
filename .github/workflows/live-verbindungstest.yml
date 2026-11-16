@@ -147,6 +147,20 @@ jobs:
                       print(f'::notice::Roblox Asset-Delivery JSON: location={bool(data.get("location"))}, Fehlercodes={codes}')
               except module.RobloxApiError as exc:
                   print(f'::notice::Roblox Asset-Delivery HTTP {exc.status}')
+              try:
+                  hits = client.search_creator_store('street lamp', limit=5)
+                  worked = False
+                  for hit in hits:
+                      try:
+                          data, _ = client.asset_content(hit['id'])
+                          if len(data) > 100:
+                              worked = True
+                              break
+                      except module.RobloxApiError:
+                          pass
+                  print(f'::notice::Roblox Asset-Download ueber Suchergebnisse: getestet={len(hits)}, erfolgreich={worked}')
+              except module.RobloxApiError:
+                  print('::notice::Roblox Asset-Download ueber Suchergebnisse: nicht testbar')
               report = client.verify()
               fields = ('search_ok', 'metadata_ok', 'delivery_ok', 'thumbnails_ok')
               print('::notice::Roblox: ' + ', '.join(f'{key}={report[key]}' for key in fields))
