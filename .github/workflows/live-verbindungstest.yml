@@ -4,7 +4,7 @@ name: Live-Verbindungstest
 on:
   workflow_dispatch:
   push:
-    branches: [arena/2711612c-filmcreation]
+    branches: [arena/d1dce8c7-filmcreation]
     paths: [.github/workflows/live-verbindungstest.yml]
 permissions:
   contents: read
