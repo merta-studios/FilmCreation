@@ -122,10 +122,17 @@ jobs:
           ROBLOX_USER_ID: ${{ secrets.ROBLOX_USER_ID }}
         run: |
           python - <<'PY'
-          import importlib, sys
+          import importlib, sys, requests
           module = importlib.import_module('1_system.roblox_api.open_cloud')
           client = module.RobloxClient()
           try:
+              try:
+                  probe = requests.post(module.TOOLBOX_SEARCH, headers={'x-api-key': client.api_key}, json={'query': 'street lamp', 'searchCategoryType': 'Model', 'maxPageSize': 1}, timeout=20, allow_redirects=False)
+                  categories = ('permission', 'scope', 'api key', 'access denied', 'cloudflare', 'captcha', 'blocked', 'ip address', 'restricted')
+                  text = probe.text.lower()
+                  print(f'::notice::Roblox Suche diagnostisch: HTTP {probe.status_code}, Merkmale={",".join(x for x in categories if x in text)}')
+              except requests.RequestException:
+                  print('::notice::Roblox Suche diagnostisch nicht erreichbar')
               try:
                   response = client._request('POST', module.TOOLBOX_SEARCH, auth=False, json_body={'query': 'street lamp', 'searchCategoryType': 'Model', 'maxPageSize': 1, 'maxPriceCents': 0})
                   print(f'::notice::Roblox anonyme Suche: HTTP {response.status_code}, Ergebnisse={len(response.json().get("creatorStoreAssets", []))}')

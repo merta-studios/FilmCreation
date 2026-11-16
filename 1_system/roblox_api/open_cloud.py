@@ -206,7 +206,7 @@ class RobloxClient:
                 response = self.session.request(method, url, params=params,
                                                 headers=self._headers(auth),
                                                 timeout=self.timeout, stream=stream,
-                                                json=json_body, allow_redirects=True)
+                                                json=json_body, allow_redirects=not auth)
             except requests.RequestException as exc:
                 last_error = exc
                 time.sleep(1.5 * (attempt + 1))
@@ -216,6 +216,10 @@ class RobloxClient:
                 wait = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else 2.0 * (attempt + 1)
                 time.sleep(min(wait, 20.0))
                 continue
+            if auth and 300 <= response.status_code < 400:
+                self.stats["errors"] += 1
+                raise RobloxApiError("Authentifizierter Redirect abgelehnt (Schutz des API-Keys)",
+                                     response.status_code, url)
             if response.status_code in (401, 403, 404):
                 self.stats["errors"] += 1
                 raise RobloxApiError(
@@ -340,7 +344,10 @@ class RobloxClient:
                 raise RobloxApiError("Asset-Delivery liefert unlesbares JSON") from exc
             location = payload.get("location") or payload.get("url")
             if not location:
-                raise RobloxApiError("Asset-Delivery liefert keine Download-URL")
+                codes = [str(e.get("code")) for e in payload.get("errors", [])
+                         if isinstance(e, dict) and isinstance(e.get("code"), int)]
+                suffix = f" (Roblox-Fehlercode {', '.join(codes)})" if codes else ""
+                raise RobloxApiError("Asset-Delivery liefert keine Download-URL" + suffix)
             cdn = self._request("GET", location, auth=False, stream=True)
             return cdn.content, cdn.headers.get("Content-Type", "")
         return response.content, content_type

@@ -127,19 +127,10 @@ def start(session_dir: Path = Path("render_session"), shots: str = "all",
         _log(f"Dataset: {dataset_slug}")
 
         slug = kernel_slug or kernel_builder.kernel_slug_for(client.username, run_id)
-        callback = {}
-        if os.environ.get("GITHUB_REPOSITORY"):
-            callback = {
-                "repo": os.environ["GITHUB_REPOSITORY"],
-                "workflow": "2-finish-film.yml",
-                "ref": os.environ.get("GITHUB_REF_NAME", "main"),
-                "token": callback_token,
-                "inputs": {"run_id": run_id, "kaggle_kernel": slug},
-            }
         kernel_dir = kernel_builder.build_kernel(
             Path("kaggle_kernel"), slug, repo_url, commit, dataset_slug,
             shots=shots, samples=samples, quality=quality, workers=workers,
-            callback=callback, username=client.username)
+            username=client.username)
         status["kernel"] = slug
         status["kernel_dir"] = str(kernel_dir)
         if dry_run:
@@ -239,7 +230,7 @@ def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
     start_parser.add_argument("--no-publish", action="store_true")
     start_parser.add_argument("--poll-seconds", type=int, default=60)
     start_parser.add_argument("--timeout-minutes", type=int, default=320)
-    start_parser.add_argument("--callback-token", default=os.environ.get("GH_CALLBACK_TOKEN", ""))
+    start_parser.add_argument("--callback-token", default="", help="veraltet; wird nicht an Kaggle uebertragen")
     start_parser.add_argument("--dry-run", action="store_true")
 
     check_parser = sub.add_parser("check", help="Status eines Kernels abfragen")

@@ -361,19 +361,15 @@ def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
     parser.add_argument("--callback-repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--callback-workflow", default="2-finish-film.yml")
     parser.add_argument("--callback-ref", default=os.environ.get("GITHUB_REF_NAME", "main"))
-    parser.add_argument("--callback-token", default=os.environ.get("GH_CALLBACK_TOKEN", ""))
+    parser.add_argument("--callback-token", default="", help="veraltet; wird nicht an Kaggle uebertragen")
     args = parser.parse_args(argv)
     username = os.environ.get("KAGGLE_USERNAME", "")
     if not username:
         raise SystemExit("KAGGLE_USERNAME fehlt")
     slug = args.kernel_slug or kernel_slug_for(username, os.environ.get("GITHUB_RUN_ID", "local"))
-    callback = {"repo": args.callback_repo, "workflow": args.callback_workflow,
-                "ref": args.callback_ref, "token": args.callback_token,
-                "inputs": {"run_id": os.environ.get("GITHUB_RUN_ID", ""),
-                           "kaggle_kernel": slug}} if args.callback_repo else {}
     folder = build_kernel(args.out_dir, slug, args.repo_url, args.commit,
                           args.dataset_slug, args.shots, args.samples, args.quality,
-                          args.workers, callback=callback, username=username)
+                          args.workers, username=username)
     print(f"Kernel-Ordner: {folder} ({slug})")
     return 0
 

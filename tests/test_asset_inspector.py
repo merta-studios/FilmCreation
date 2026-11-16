@@ -138,3 +138,29 @@ def test_creator_store_search_uses_documented_post_contract(tmp_path, monkeypatc
     assert method == 'POST' and url.endswith('/assets:search')
     assert options['json_body'] == {'query': 'lamp', 'maxPageSize': 3,
                                     'searchCategoryType': 'Model', 'maxPriceCents': 0}
+
+
+def test_roblox_api_key_is_not_followed_on_redirect(tmp_path):
+    from types import SimpleNamespace
+    class Session:
+        def __init__(self):
+            self.headers = {}
+            self.calls = []
+        def request(self, method, url, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(status_code=302, headers={}, text='')
+    session = Session()
+    client = open_cloud.RobloxClient(api_key='fake-secret', cache_dir=tmp_path, session=session)
+    with pytest.raises(open_cloud.RobloxApiError):
+        client._request('GET', open_cloud.ASSET_DELIVERY + '/123')
+    assert session.calls[0]['allow_redirects'] is False
+
+
+def test_delivery_json_error_is_not_misreported_as_success(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    client = open_cloud.RobloxClient(api_key='fake', cache_dir=tmp_path)
+    monkeypatch.setattr(client, '_request', lambda *a, **kw: SimpleNamespace(
+        headers={'Content-Type': 'application/json'},
+        json=lambda: {'errors': [{'code': 409, 'message': 'not usable'}]}))
+    with pytest.raises(open_cloud.RobloxApiError, match='409'):
+        client.asset_content(123)
