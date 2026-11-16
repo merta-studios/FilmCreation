@@ -56,7 +56,7 @@ def emotion_settings(emotion: Optional[str], base: dict) -> dict:
     return settings
 
 
-def validate_script(script: dict, voices: dict) -> list[dict]:
+def validate_script(script: dict, voices: dict, require_voices: bool = True) -> list[dict]:
     """Prueft die Sprechdatei und gibt normalisierte Segmente zurueck."""
     raw_segments = script.get("segments")
     if not isinstance(raw_segments, list) or not raw_segments:
@@ -81,24 +81,25 @@ def validate_script(script: dict, voices: dict) -> list[dict]:
             raise TimelineError(f"Segment {segment_id} ist mit {len(text)} Zeichen zu lang "
                                 f"(max. {MAX_SEGMENT_CHARS}). Bitte in kuerzere Segmente teilen.")
         speaker = str(raw.get("speaker") or "haupt_erzaehler")
-        if speaker not in speaker_entries:
+        if speaker not in speaker_entries and require_voices:
             raise TimelineError(
                 f"Segment {segment_id}: Sprecher '{speaker}' fehlt in "
                 f"3_regeln/empfohlene_elevenlabs_stimmen.yaml")
-        voice = (speaker_entries[speaker] or {}).get("voice_id")
-        if not voice:
+        entry = speaker_entries.get(speaker) or {}
+        voice = entry.get("voice_id")
+        if not voice and require_voices:
             raise TimelineError(
                 f"Sprecher '{speaker}' hat keine voice_id. Bitte in "
                 f"3_regeln/empfohlene_elevenlabs_stimmen.yaml eintragen.")
         pause = float(raw.get("pause_after", 0.0) or 0.0)
         if pause < 0 or pause > 6:
             raise TimelineError(f"Segment {segment_id}: Pause {pause}s ist unplausibel (0-6 s)")
-        settings = emotion_settings(raw.get("emotion"), (speaker_entries[speaker] or {}).get("settings") or {})
+        settings = emotion_settings(raw.get("emotion"), entry.get("settings") or {})
         segments.append({
             "segment_id": segment_id, "speaker": speaker, "text": text,
-            "voice_id": str(voice), "pause_after": pause,
+            "voice_id": str(voice) if voice else None, "pause_after": pause,
             "voice_settings": settings,
-            "model_id": (speaker_entries[speaker] or {}).get("model_id"),
+            "model_id": entry.get("model_id"),
             "emotion": raw.get("emotion"),
         })
         total_chars += len(text)
@@ -263,7 +264,11 @@ def generate(film_dir: Path = film_loader.FILM_DIR_DEFAULT, out_dir: Path = Path
 def credits_only(film_dir: Path, out_json: Optional[Path] = None) -> int:
     """Prueft Guthaben und Stimme, ohne einen einzigen Credit zu verbrauchen."""
     film = film_loader.load_film(film_dir)
-    segments = validate_script(film.script, film.voices)
+    segments = validate_script(film.script, film.voices, require_voices=False)
+    missing_voices = sorted({s["speaker"] for s in segments if not s["voice_id"]})
+    if missing_voices:
+        print("WARNUNG: Stimmen nicht konfiguriert: " + ", ".join(missing_voices),
+              file=sys.stderr)
     total = sum(len(segment["text"]) for segment in segments)
     needed = int(round(total * CREDIT_BUFFER))
     pool = pool_module.ElevenLabsPool()
@@ -283,7 +288,7 @@ def credits_only(film_dir: Path, out_json: Optional[Path] = None) -> int:
         with open(summary_path, "a", encoding="utf-8") as stream:
             stream.write("## Guthaben-Check\n\n")
             stream.write(report.summary_markdown() + "\n")
-    return 0 if report.ok else 1
+    return 0 if report.ok and not missing_voices else 1
 
 
 def main(argv: Optional[list[str]] = None) -> int:

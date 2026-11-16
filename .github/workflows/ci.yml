@@ -118,8 +118,11 @@ jobs:
         env:
           RENDER_DEVICE: CPU
         run: |
+          mkdir -p render_output/clip
+          python -c 'import json; from pathlib import Path; Path("render_output/clip/timeline.json").write_text(json.dumps({"fps":24,"width":1080,"height":1920,"total_frames":480,"total_seconds":20,"segments":[],"word_cues":[],"shots":[{"id":1,"segment_id":1,"start_frame":0,"end_frame":3,"frames":3}]}))'
           python -m 1_system.blender_engine.scene_builder \
             --quality preview --shots 1 --out-dir render_output/clip \
+            --timeline render_output/clip/timeline.json \
             --manifest render_output/clip/render_manifest.json
           ls -l render_output/clip
           test -s render_output/clip/shot_001.mp4
