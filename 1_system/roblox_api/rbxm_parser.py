@@ -419,7 +419,7 @@ class RbxmBinaryParser:
         cframe = props.get("CFrame") or {}
         position = tuple(cframe.get("position", (0.0, 0.0, 0.0))) if isinstance(cframe, dict) else (0.0, 0.0, 0.0)
         rotation = tuple(cframe.get("rotation", (1, 0, 0, 0, 1, 0, 0, 0, 1))) if isinstance(cframe, dict) else (1, 0, 0, 0, 1, 0, 0, 0, 1)
-        color = props.get("Color3uint8")
+        color = props.get("Color3uint8") or props.get("Color") or props.get("Color3")
         color_tuple = tuple(float(c) for c in color) if isinstance(color, tuple) and len(color) == 3 else (0.64, 0.64, 0.64)
         mesh_id = ""
         mesh_scale = (1.0, 1.0, 1.0)
@@ -904,24 +904,62 @@ class RbxmParser:
     def parse_filemesh(self, data: bytes) -> dict:
         return parse_filemesh(data)
 
+    @staticmethod
+    def extract_asset_id(uri: str) -> Optional[int]:
+        import re
+        match = re.search(r"(\d{3,})", str(uri or ""))
+        return int(match.group(1)) if match else None
+
     def import_into_blender(self, model: RbxmModel, collection=None,
                             offset=(0.0, 0.0, 0.0), scale: float = 1.0,
-                            material_factory=None) -> list:
-        """Baut die Teile eines Roblox-Modells als Blender-Objekte."""
+                            material_factory=None,
+                            mesh_dir: Optional[Path] = None) -> list:
+        """Baut die Teile eines Roblox-Modells als Blender-Objekte (inkl. FileMesh falls vorhanden)."""
         try:
             import bpy  # type: ignore
             from mathutils import Matrix  # type: ignore
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("Der Blender-Import braucht bpy") from exc
         collection = collection or bpy.context.scene.collection
+        search_dirs = [Path(d) for d in (mesh_dir, Path("assets_cache/roblox"), Path("assets/models"))
+                       if d is not None]
         created = []
         for index, part in enumerate(model.parts):
-            # Roblox-Modelle haben 4x4-Matrizen; wir setzen Position + Rotation
-            bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 0))
-            obj = bpy.context.object
-            obj.name = f"{model.name or 'asset'}_{part.name or index}"
-            obj.scale = tuple(max(0.02, s) * scale for s in part.size)
-            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            obj = None
+            mesh_asset_id = self.extract_asset_id(part.mesh_id)
+            if mesh_asset_id:
+                for folder in search_dirs:
+                    for candidate in (folder / f"mesh_{mesh_asset_id}.mesh",
+                                      folder / f"{mesh_asset_id}.mesh"):
+                        if candidate.is_file():
+                            try:
+                                geo = parse_filemesh(candidate.read_bytes())
+                                ms = part.mesh_scale or (1.0, 1.0, 1.0)
+                                verts = [(v[0] * ms[0] * scale,
+                                          v[2] * ms[2] * scale,
+                                          v[1] * ms[1] * scale)
+                                         for v in geo["vertices"]]
+                                bmesh_data = bpy.data.meshes.new(f"mesh_{mesh_asset_id}_{index}")
+                                bmesh_data.from_pydata(verts, [], geo["faces"])
+                                bmesh_data.validate()
+                                bmesh_data.update()
+                                obj = bpy.data.objects.new(
+                                    f"{model.name or 'asset'}_{part.name or index}", bmesh_data)
+                                collection.objects.link(obj)
+                                break
+                            except Exception:  # noqa: BLE001
+                                obj = None
+                    if obj is not None:
+                        break
+            if obj is None:
+                bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 0))
+                obj = bpy.context.object
+                obj.name = f"{model.name or 'asset'}_{part.name or index}"
+                obj.scale = tuple(max(0.02, s) * scale for s in part.size)
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+                for link in list(obj.users_collection):
+                    link.objects.unlink(obj)
+                collection.objects.link(obj)
             matrix = Matrix.Identity(4)
             rotation = part.rotation_matrix
             if len(rotation) == 9:
@@ -933,11 +971,17 @@ class RbxmParser:
             obj.location = (part.position[0] * scale + offset[0],
                             part.position[2] * scale + offset[1],
                             part.position[1] * scale + offset[2])
-            for link in list(obj.users_collection):
-                link.objects.unlink(obj)
-            collection.objects.link(obj)
             if material_factory is not None:
                 obj.data.materials.append(material_factory(part))
+            elif not obj.data.materials:
+                mat = bpy.data.materials.new(f"rbx_{part.name or index}")
+                mat.use_nodes = True
+                bsdf = mat.node_tree.nodes.get("Principled BSDF")
+                if bsdf is not None:
+                    c = part.color or (0.64, 0.64, 0.64)
+                    bsdf.inputs["Base Color"].default_value = (c[0], c[1], c[2], 1.0)
+                    bsdf.inputs["Roughness"].default_value = 0.55
+                obj.data.materials.append(mat)
             created.append(obj)
         return created
 

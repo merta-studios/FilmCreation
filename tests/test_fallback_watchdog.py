@@ -126,3 +126,13 @@ def test_watchdog_without_open_runs(tmp_path):
     report = watchdog_mod.watchdog(tmp_path, gh=gh)
     assert report["actions"][0]["kind"] == "none"
     assert gh.dispatched == []
+
+
+def test_watchdog_resumes_async_completed_launcher(tmp_path):
+    completed = watchdog_mod.RunInfo(run_id=99, status="completed", conclusion="success",
+                                     created_at=NOW, display_title="Render")
+    gh = FakeGh(runs=[completed], artifact={"pending": True, "kernel": "u/async-k"})
+    report = watchdog_mod.watchdog(tmp_path, gh=gh, kaggle=FakeKaggle("KernelWorkerStatus.COMPLETE"))
+    assert gh.dispatched == [(watchdog_mod.FINISH_WORKFLOW,
+                              {"run_id": 99, "kaggle_kernel": "u/async-k"})]
+    assert report["executed"][0]["ok"]

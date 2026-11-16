@@ -210,10 +210,19 @@ def assemble(timeline: dict, manifest: dict, audio: Path, output: Path,
             ass_file = Path(subtitles_path)
         else:
             sound_design = importlib.import_module("1_system.audio.sound_design")
-            style_choice = str((config.get("untertitel_stil") or {}).get("font", "inter"))
-            resolved_font = font_manager.resolve(style_choice, allow_download=False)
-            font_name = resolved_font.stem.split("[")[0].replace("_", " ") if resolved_font else "DejaVu Sans"
-            style = sound_design.SubtitleStyle(font=font_name)
+            style_cfg = config.get("untertitel_stil") or {}
+            safe_cfg = config.get("safe_zone") or {}
+            style_choice = str(style_cfg.get("font", "inter"))
+            font_name = font_manager.font_family_for_ass(style_choice, allow_download=False)
+            raw_hl = str(style_cfg.get("highlight", "#FFD700")).strip().lstrip("#")
+            hl_bgr = (f"{raw_hl[4:6]}{raw_hl[2:4]}{raw_hl[0:2]}".upper()
+                      if len(raw_hl) == 6 else "00D7FF")
+            style = sound_design.SubtitleStyle(
+                font=font_name,
+                font_size=int(style_cfg.get("size", 62)),
+                highlight=hl_bgr,
+                margin_v=int(safe_cfg.get("bottom_px", sound_design.SAFE_ZONE_BOTTOM_PX)),
+            )
             ass_file = sound_design.build_tiktok_subtitles(
                 timeline, work_dir / "captions.ass", style=style,
                 width=WIDTH, height=HEIGHT)
@@ -377,8 +386,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         subtitles = args.subtitles == "true"
 
+    subtitles_file = args.subtitles_file
+    if subtitles_file is None:
+        default_captions = args.timeline.parent / "captions.ass"
+        if default_captions.is_file():
+            subtitles_file = default_captions
+
     result = assemble(timeline, manifest, args.audio, args.output, subtitles=subtitles,
-                      config=config, subtitles_path=args.subtitles_file,
+                      config=config, subtitles_path=subtitles_file,
                       storyboard=args.storyboard, report=args.report,
                       shots_dir=args.shots_dir, crf=args.crf, preset=args.preset)
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -11,6 +11,7 @@ name: 1 - Film rendern
 run-name: >-
   Render: ${{ inputs.shots || 'alle Shots' }} |
   Ziel: ${{ inputs.render_target || 'auto' }} |
+  Quelle: ${{ inputs.source_run_id || 'neu' }} |
   Qualitaet: ${{ inputs.quality || 'auto' }}
 
 on:
@@ -43,6 +44,10 @@ on:
         description: "Guthaben-Pruefung ueberspringen (nicht empfohlen)"
         type: boolean
         default: false
+      source_run_id:
+        description: "Vorhandene Session fuer Fallback wiederverwenden (interner Gebrauch)"
+        default: ""
+        required: false
 
 permissions:
   contents: read
@@ -84,8 +89,17 @@ jobs:
       - name: Film pruefen
         run: python -m 1_system.tools.validate_film --json render_session/validation.json
 
+      - name: Vorhandene Session fuer Fallback laden
+        if: inputs.source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: render-session
+          path: render_session
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GH_CALLBACK_TOKEN || github.token }}
+
       - name: Guthaben pruefen (harter Stopp vor jedem Credit)
-        if: ${{ !inputs.skip_credit_check }}
+        if: ${{ !inputs.skip_credit_check && inputs.source_run_id == '' }}
         env:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
           ELEVENLABS_API_KEY_1: ${{ secrets.ELEVENLABS_API_KEY_1 }}
@@ -94,12 +108,17 @@ jobs:
           ELEVENLABS_API_KEY_4: ${{ secrets.ELEVENLABS_API_KEY_4 }}
           ELEVENLABS_API_KEY_5: ${{ secrets.ELEVENLABS_API_KEY_5 }}
           ELEVENLABS_API_KEY_6: ${{ secrets.ELEVENLABS_API_KEY_6 }}
+          ELEVENLABS_API_KEY_7: ${{ secrets.ELEVENLABS_API_KEY_7 }}
+          ELEVENLABS_API_KEY_8: ${{ secrets.ELEVENLABS_API_KEY_8 }}
+          ELEVENLABS_API_KEY_9: ${{ secrets.ELEVENLABS_API_KEY_9 }}
+          ELEVENLABS_API_KEY_10: ${{ secrets.ELEVENLABS_API_KEY_10 }}
         run: |
           mkdir -p render_session
           python -m 1_system.audio.generate_timeline --credits-only \
             --json-out render_session/credits.json
 
       - name: Sprachaufnahme + wortgenaue Timeline
+        if: inputs.source_run_id == ''
         env:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
           ELEVENLABS_API_KEY_1: ${{ secrets.ELEVENLABS_API_KEY_1 }}
@@ -108,6 +127,10 @@ jobs:
           ELEVENLABS_API_KEY_4: ${{ secrets.ELEVENLABS_API_KEY_4 }}
           ELEVENLABS_API_KEY_5: ${{ secrets.ELEVENLABS_API_KEY_5 }}
           ELEVENLABS_API_KEY_6: ${{ secrets.ELEVENLABS_API_KEY_6 }}
+          ELEVENLABS_API_KEY_7: ${{ secrets.ELEVENLABS_API_KEY_7 }}
+          ELEVENLABS_API_KEY_8: ${{ secrets.ELEVENLABS_API_KEY_8 }}
+          ELEVENLABS_API_KEY_9: ${{ secrets.ELEVENLABS_API_KEY_9 }}
+          ELEVENLABS_API_KEY_10: ${{ secrets.ELEVENLABS_API_KEY_10 }}
         run: |
           python -m 1_system.audio.generate_timeline \
             --out-dir render_session \
@@ -139,6 +162,9 @@ jobs:
   shots:
     name: 2/3 Shots rendern
     needs: audio
+    outputs:
+      render_target: ${{ steps.target.outputs.target }}
+      kaggle_outcome: ${{ steps.kaggle.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -204,7 +230,7 @@ jobs:
             args+=(--quality "${{ steps.target.outputs.quality }}")
           fi
           python -m 1_system.kaggle_bridge.parallel_render start \
-            --session-dir render_session --out-dir render_output "${args[@]}"
+            --session-dir render_session --out-dir render_output --no-wait "${args[@]}"
 
       - name: Blender fuer den GitHub-Fallback installieren
         if: >-
@@ -234,7 +260,7 @@ jobs:
             "${args[@]}"
 
       - name: Manifest zusammenfuehren
-        if: always()
+        if: always() && (steps.target.outputs.target == 'github' || steps.kaggle.outcome == 'failure')
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -284,6 +310,7 @@ jobs:
   notify:
     name: 3/3 Film fertigstellen starten
     needs: [audio, shots]
+    if: needs.shots.outputs.render_target != 'kaggle' || needs.shots.outputs.kaggle_outcome == 'failure'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

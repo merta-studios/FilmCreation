@@ -233,27 +233,87 @@ def make_billboard_counter(character: dict, text: str, offset_z: float = 1.15,
                          plate.scale.y if obj is plate else 1.0, 1.0)
             obj.keyframe_insert("scale", frame=start_frame + 4)
 
-    handle = {"root": parent, "plate": plate, "label": label,
-              "character": character["name"], "text": text}
+    handle = {
+        "root": parent, "plate": plate, "label": label,
+        "labels": [label],
+        "character": character["name"], "text": text,
+        "size": size, "font": font, "color": color,
+        "camera": scene_camera, "collection": collection,
+    }
     character.setdefault("counters", []).append(handle)
     return handle
 
 
 def update_counter(handle: dict, new_text: str, frame: Optional[int] = None,
                    pop: bool = True) -> None:
-    """Aendert den Zaehlerstand; optional mit "Plopp" beim Umschalten."""
+    """Aendert den Zaehlerstand framegenau; optional mit 'Plopp' beim Umschalten."""
     require_bpy()
-    label = handle["label"]
-    old = label.data.body
-    if old == new_text:
+    current = handle["label"]
+    new_text = str(new_text)
+    if current.data.body == new_text:
         return
-    if frame is not None and pop:
-        base = label.scale.copy()
-        label.scale = (base.x * 1.25, base.y * 1.25, base.z)
-        label.keyframe_insert("scale", frame=max(1, frame - 1))
-        label.scale = base
-        label.keyframe_insert("scale", frame=frame + 3)
-    label.data.body = new_text
+    if frame is None:
+        current.data.body = new_text
+        handle["text"] = new_text
+        return
+
+    trigger_frame = max(1, int(frame))
+    prev_frame = max(1, trigger_frame - 1)
+    collection = handle.get("collection") or bpy.context.scene.collection
+    index = len(handle.get("labels", [current]))
+    next_label = _text_object(
+        f"{handle['character']}_CounterText_{index}", new_text,
+        float(handle.get("size", 0.28)), str(handle.get("font", "spacemono")),
+        str(handle.get("color", "#FFE8A3")),
+        emission=4.0, extrude=0.004, collection=collection)
+    next_label.parent = handle["root"]
+    next_label.location = current.location.copy()
+    scene_camera = handle.get("camera") or bpy.context.scene.camera
+    if scene_camera is not None:
+        constraint = next_label.constraints.new("TRACK_TO")
+        constraint.target = scene_camera
+        constraint.track_axis = "TRACK_Z"
+        constraint.up_axis = "UP_Y"
+
+    # Altes Label bis prev_frame sichtbar, ab trigger_frame ausgeblendet
+    current.hide_render = False
+    current.hide_viewport = False
+    current.keyframe_insert("hide_render", frame=prev_frame)
+    current.keyframe_insert("hide_viewport", frame=prev_frame)
+    current.hide_render = True
+    current.hide_viewport = True
+    current.keyframe_insert("hide_render", frame=trigger_frame)
+    current.keyframe_insert("hide_viewport", frame=trigger_frame)
+
+    # Neues Label vor trigger_frame ausgeblendet, ab trigger_frame sichtbar
+    next_label.hide_render = True
+    next_label.hide_viewport = True
+    next_label.keyframe_insert("hide_render", frame=prev_frame)
+    next_label.keyframe_insert("hide_viewport", frame=prev_frame)
+    next_label.hide_render = False
+    next_label.hide_viewport = False
+    next_label.keyframe_insert("hide_render", frame=trigger_frame)
+    next_label.keyframe_insert("hide_viewport", frame=trigger_frame)
+
+    if pop:
+        base = next_label.scale.copy()
+        next_label.scale = (base.x * 1.25, base.y * 1.25, base.z)
+        next_label.keyframe_insert("scale", frame=trigger_frame)
+        next_label.scale = base
+        next_label.keyframe_insert("scale", frame=trigger_frame + 4)
+
+    # Hintergrundplatte verbreitern falls der neue Text laenger ist
+    plate = handle.get("plate")
+    if plate is not None:
+        size = float(handle.get("size", 0.28))
+        new_w = max(plate.scale.x, max(0.7, 0.3 * len(new_text) * size / 0.32))
+        if new_w > plate.scale.x + 0.01:
+            plate.keyframe_insert("scale", frame=prev_frame)
+            plate.scale = (new_w, plate.scale.y, plate.scale.z)
+            plate.keyframe_insert("scale", frame=trigger_frame + 2)
+
+    handle.setdefault("labels", [current]).append(next_label)
+    handle["label"] = next_label
     handle["text"] = new_text
 
 

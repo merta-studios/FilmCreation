@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import requests
 
@@ -339,7 +339,8 @@ class ElevenLabsPool:
         return ElevenLabsError(f"ElevenLabs: {message} ({code})", code, response.status_code)
 
     # -- Guthaben -------------------------------------------------------- #
-    def check_key(self, entry: str, required_voice_id: Optional[str] = None) -> KeyStatus:
+    def check_key(self, entry: str,
+                  required_voice_id: Optional[str | Sequence[str]] = None) -> KeyStatus:
         masked = mask_key(entry)
         try:
             response = self.session.get(f"{BASE_URL}/user/subscription",
@@ -380,15 +381,23 @@ class ElevenLabsPool:
         self._remaining[entry] = remaining
         if required_voice_id:
             status.voice_checked = True
-            status.has_voice = self.has_voice(entry, required_voice_id)
+            voices = ([required_voice_id] if isinstance(required_voice_id, str)
+                      else [v for v in required_voice_id if v])
+            status.has_voice = all(self.has_voice(entry, vid) for vid in voices)
         return status
 
     def check_credits(self, estimated_chars: int = 0,
-                      required_voice_id: Optional[str] = None) -> CreditReport:
+                      required_voice_id: Optional[str | Sequence[str]] = None) -> CreditReport:
         if estimated_chars < 0:
             raise ValueError("Zeichenbedarf darf nicht negativ sein")
+        label: Optional[str]
+        if isinstance(required_voice_id, str) or required_voice_id is None:
+            label = required_voice_id
+        else:
+            cleaned = [str(v) for v in required_voice_id if v]
+            label = ", ".join(cleaned) if cleaned else None
         statuses = [self.check_key(entry, required_voice_id) for entry in self.keys]
-        return CreditReport(statuses, estimated_chars, required_voice_id)
+        return CreditReport(statuses, estimated_chars, label)
 
     # -- Stimmen --------------------------------------------------------- #
     def list_voices(self, entry: Optional[str] = None) -> list[dict]:

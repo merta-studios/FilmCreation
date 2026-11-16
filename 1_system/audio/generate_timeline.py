@@ -120,7 +120,10 @@ def synthesize(film, segments: list[dict], out_dir: Path,
     audio_dir = out_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    first_voice = segments[0]["voice_id"]
+    unique_voices = list(dict.fromkeys(s["voice_id"] for s in segments if s.get("voice_id")))
+    voice_arg = (None if not unique_voices
+                 else unique_voices[0] if len(unique_voices) == 1
+                 else unique_voices)
     api_pool = api_pool or pool_module.ElevenLabsPool(
         voice_settings={"stability": 0.45, "similarity_boost": 0.8, "style": 0.25,
                         "use_speaker_boost": True})
@@ -132,7 +135,7 @@ def synthesize(film, segments: list[dict], out_dir: Path,
 
     credit_report = None
     if not skip_credit_check:
-        credit_report = api_pool.check_credits(needed, first_voice)
+        credit_report = api_pool.check_credits(needed, voice_arg)
         print(credit_report.summary())
         if not credit_report.ok:
             raise TimelineError(
@@ -276,7 +279,11 @@ def credits_only(film_dir: Path, out_json: Optional[Path] = None) -> int:
         print("FEHLER: Keine ElevenLabs-Keys gesetzt (ELEVENLABS_API_KEYS oder "
               "ELEVENLABS_API_KEY_1..10).", file=sys.stderr)
         return 2
-    report = pool.check_credits(needed, segments[0]["voice_id"])
+    unique_voices = list(dict.fromkeys(s["voice_id"] for s in segments if s.get("voice_id")))
+    voice_arg = (None if not unique_voices
+                 else unique_voices[0] if len(unique_voices) == 1
+                 else unique_voices)
+    report = pool.check_credits(needed, voice_arg)
     print(report.summary())
     if out_json:
         out_json.parent.mkdir(parents=True, exist_ok=True)

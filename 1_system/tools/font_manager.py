@@ -29,18 +29,20 @@ from typing import Optional
 
 CACHE_DIR = Path(os.environ.get("FONT_CACHE_DIR", "assets_cache/fonts"))
 MANIFEST = CACHE_DIR / "fonts_manifest.json"
-API_ROOT = "https://api.github.com/repos/google-fonts/google-fonts/contents"
-RAW_ROOT = "https://github.com/google-fonts/google-fonts/raw/main"
+API_ROOT = "https://api.github.com/repos/google/fonts/contents"
+RAW_ROOT = "https://raw.githubusercontent.com/google/fonts/main"
 USER_AGENT = "FilmCreation-FontLoader/1.0 (+https://github.com/merta-studios/FilmCreation)"
 
 #: Stilname -> (Familie, Ordner im Google-Fonts-Repo, Beschreibung)
 FONT_FAMILIES: dict[str, tuple[str, str, str]] = {
     "bebas": ("Bebas Neue", "ofl/bebasneue", "Plakat/Hook-Schrift, sehr schmal"),
     "anton": ("Anton", "ofl/anton", "fette Headline fuer Schilder"),
+    "montserrat": ("Montserrat", "ofl/montserrat", "klare Headline/Untertitel-Schrift"),
+    "rubik": ("Rubik", "ofl/rubik", "moderne abgerundete Sans"),
     "oswald": ("Oswald", "ofl/oswald", "Strassenschild/Kondensiert"),
     "inter": ("Inter", "ofl/inter", "neutraler Sans fuer Untertitel"),
     "poppins": ("Poppins", "ofl/poppins", "freundlicher Sans"),
-    "roboto": ("Roboto", "apache/roboto", "Standard-Sans fuer UI-Texte"),
+    "roboto": ("Roboto", "ofl/roboto", "Standard-Sans fuer UI-Texte"),
     "lora": ("Lora", "ofl/lora", "ruhige Serif fuer erzaehlende Schilder"),
     "playfair": ("Playfair Display", "ofl/playfairdisplay", "elegante Serif"),
     "abril": ("Abril Fatface", "ofl/abrilfatface", "plakative Display-Serif"),
@@ -146,6 +148,20 @@ def _update_manifest(family: str, folder: str, filename: str, original: str) -> 
     MANIFEST.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _normalize_key(raw: str) -> str:
+    key = _slug(raw.replace(" ", ""))
+    alias = {
+        "bebasneue": "bebas", "inter_": "inter", "playfairdisplay": "playfair",
+        "courierprime": "typewriter", "space_mono": "spacemono",
+        "permanentmarker": "marker", "luckiestguy": "luckiest",
+        "gloriahallelujah": "chalk", "shadowsintolight": "shadows",
+        "patrickhand": "patrick", "abrilfatface": "abril",
+        "montserratextrabold": "montserrat", "montserrat_extrabold": "montserrat",
+        "rubikbold": "rubik", "rubik_bold": "rubik",
+    }
+    return alias.get(key, key)
+
+
 def resolve(name_or_path: Optional[str], allow_download: bool = True) -> Optional[Path]:
     """Loest Stilnamen (``"bebas"``, ``"Bebas Neue"``) oder Pfade zu einer Font-Datei auf."""
     if not name_or_path:
@@ -154,15 +170,7 @@ def resolve(name_or_path: Optional[str], allow_download: bool = True) -> Optiona
     candidate = Path(raw)
     if candidate.suffix.lower() in (".ttf", ".otf") and candidate.is_file():
         return candidate
-    key = _slug(raw.replace(" ", ""))
-    alias = {
-        "bebasneue": "bebas", "inter_": "inter", "playfairdisplay": "playfair",
-        "courierprime": "typewriter", "space_mono": "spacemono",
-        "permanentmarker": "marker", "luckiestguy": "luckiest",
-        "gloriahallelujah": "chalk", "shadowsintolight": "shadows",
-        "patrickhand": "patrick", "abrilfatface": "abril",
-    }
-    key = alias.get(key, key)
+    key = _normalize_key(raw)
     if key in FONT_FAMILIES:
         cached = CACHE_DIR / f"{_slug(FONT_FAMILIES[key][0])}.ttf"
         if cached.is_file():
@@ -194,10 +202,13 @@ def list_local() -> dict[str, dict]:
         return {}
 
 
-def font_family_for_ass(style: str = "inter") -> str:
+def font_family_for_ass(style: str = "inter", allow_download: bool = False) -> str:
     """Familienname fuer libass (Untertitel) - mit DejaVu-Fallback."""
-    path = resolve(style, allow_download=False)
+    path = resolve(style, allow_download=allow_download)
     if path:
+        key = _normalize_key(style)
+        if key in FONT_FAMILIES:
+            return FONT_FAMILIES[key][0]
         return path.stem.split("[")[0].replace("_", " ")
     return "DejaVu Sans"
 

@@ -553,6 +553,7 @@ def mix_master_audio(timeline: dict, output_path: Path, work_dir: Path,
                     music_path: Optional[Path] = None,
                     sfx_events: Optional[Sequence[SfxEvent]] = None,
                     loudness_target: float = TARGET_LUFS,
+                    auto_ducking: bool = True,
                     keep_stems: bool = False) -> dict:
     """Mischt Sprache + Musik + SFX zu einer fertigen Master-Spur (48 kHz stereo)."""
     work_dir = Path(work_dir)
@@ -577,8 +578,9 @@ def mix_master_audio(timeline: dict, output_path: Path, work_dir: Path,
             f"[{index}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
             f"adelay={delay_ms}|{delay_ms},volume=1.0[v{index}]")
         voice_labels.append(f"[v{index}]")
-    voice = f"{''.join(voice_labels)}amix=inputs={len(voice_labels)}:duration=longest:normalize=0,"\
-            f"apad,atrim=duration={total:.3f},asetpts=PTS-STARTPTS[voice]"
+    voice = (f"{''.join(voice_labels)}amix=inputs={len(voice_labels)}:"
+             f"duration=longest:dropout_transition=0:normalize=0,"
+             f"apad,atrim=duration={total:.3f},asetpts=PTS-STARTPTS[voice]")
     filters.append(voice)
 
     # Musik
@@ -592,8 +594,13 @@ def mix_master_audio(timeline: dict, output_path: Path, work_dir: Path,
     filters.append(
         f"[{music_index}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
         f"atrim=duration={total:.3f},asetpts=PTS-STARTPTS,volume={music_gain_db}dB[mustrack]")
-    filters.append("[mustrack][voice]sidechaincompress=threshold=0.035:ratio=9:"
-                   "attack=25:release=420:makeup=1[ducked]")
+    if auto_ducking:
+        filters.append("[voice]asplit=2[voice_mix][voice_sc]")
+        filters.append("[mustrack][voice_sc]sidechaincompress=threshold=0.035:ratio=9:"
+                       "attack=25:release=420:makeup=1[music_out]")
+    else:
+        filters.append("[voice]anull[voice_mix]")
+        filters.append("[mustrack]anull[music_out]")
 
     # SFX
     sfx_inputs: list[int] = []
@@ -611,10 +618,10 @@ def mix_master_audio(timeline: dict, output_path: Path, work_dir: Path,
             f"adelay={delay_ms}|{delay_ms}[s{index}]")
         sfx_inputs.append(index)
 
-    mix_labels = "[ducked]" + "".join(f"[s{index}]" for index in sfx_inputs)
-    mix_count = 1 + len(sfx_inputs)
-    filters.append(f"{mix_labels}amix=inputs={mix_count}:duration=longest:normalize=0,"
-                   f"apad,atrim=duration={total:.3f}[mixed]")
+    mix_labels = "[voice_mix][music_out]" + "".join(f"[s{index}]" for index in sfx_inputs)
+    mix_count = 2 + len(sfx_inputs)
+    filters.append(f"{mix_labels}amix=inputs={mix_count}:duration=longest:"
+                   f"dropout_transition=0:normalize=0,apad,atrim=duration={total:.3f}[mixed]")
     filters.append(f"[mixed]loudnorm=I={loudness_target}:TP={TRUE_PEAK}:LRA=11,"
                    "alimiter=limit=0.94,aresample=48000[master]")
 

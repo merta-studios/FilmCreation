@@ -30,7 +30,7 @@ kaggle_client = import_module("1_system.kaggle_bridge.kaggle_client")
 #: Dateien, die der Kernel wirklich braucht
 SESSION_FILES = ("timeline_resolved.json", "film_info.md", "speech_report.json")
 #: Zusaetzlich mitgenommene Ordner (Audio ist fuer den Schnitt relevant)
-SESSION_DIRS = ("audio",)
+SESSION_DIRS = ("audio", "roblox_assets")
 
 
 def dataset_slug(username: str, base: str = "filmcreation-session") -> str:
@@ -62,12 +62,13 @@ def build_dataset_folder(session_dir: Path, target_dir: Path, slug: str,
         raise FileNotFoundError(
             f"{session_dir}/timeline_resolved.json fehlt - zuerst "
             "1_system/audio/generate_timeline.py laufen lassen")
-    if include_audio:
-        for name in SESSION_DIRS:
-            source = session_dir / name
-            if source.is_dir():
-                shutil.copytree(source, target_dir / name)
-                copied.append(name)
+    for name in SESSION_DIRS:
+        if name == "audio" and not include_audio:
+            continue
+        source = session_dir / name
+        if source.is_dir():
+            shutil.copytree(source, target_dir / name)
+            copied.append(name)
     metadata = {
         "title": title[:50],
         "id": slug,

@@ -101,7 +101,8 @@ def start(session_dir: Path = Path("render_session"), shots: str = "all",
           out_dir: Path = Path("render_output"), kernel_slug: Optional[str] = None,
           repo_url: str = DEFAULT_REPO_URL, publish: bool = True,
           poll_seconds: int = 60, timeout_minutes: int = 320,
-          callback_token: str = "", dry_run: bool = False) -> dict:
+          callback_token: str = "", dry_run: bool = False,
+          no_wait: bool = False) -> dict:
     """Kompletter Kaggle-Lauf. Gibt einen Status-Dict zurueck (auch bei Fehlern)."""
     client = kaggle_client.KaggleClient(dry_run=dry_run)
     run_id = os.environ.get("GITHUB_RUN_ID") or time.strftime("%Y%m%d%H%M%S")
@@ -140,7 +141,13 @@ def start(session_dir: Path = Path("render_session"), shots: str = "all",
 
         published = client.push_kernel(kernel_dir)
         status["kernel_pushed"] = published
+        status["kernel"] = slug
         _log(f"Kernel gestartet: {published}")
+        if no_wait:
+            status.update({"ok": True, "queued": True, "pending": True,
+                           "finished": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            write_status(Path(out_dir) / STATUS_FILE, status)
+            return status
 
         state = client.wait_for_kernel(slug, timeout_minutes=timeout_minutes,
                                        poll_seconds=poll_seconds,
@@ -232,6 +239,8 @@ def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
     start_parser.add_argument("--timeout-minutes", type=int, default=320)
     start_parser.add_argument("--callback-token", default="", help="veraltet; wird nicht an Kaggle uebertragen")
     start_parser.add_argument("--dry-run", action="store_true")
+    start_parser.add_argument("--no-wait", action="store_true",
+                              help="Push Kernel und zurueckkehren; Ergebnis spaeter laden")
 
     check_parser = sub.add_parser("check", help="Status eines Kernels abfragen")
     check_parser.add_argument("--kernel", required=True)
@@ -246,7 +255,7 @@ def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
         status = start(args.session_dir, args.shots, args.samples, args.quality,
                        args.workers, args.out_dir, args.kernel_slug, args.repo_url,
                        not args.no_publish, args.poll_seconds, args.timeout_minutes,
-                       args.callback_token, args.dry_run)
+                       args.callback_token, args.dry_run, args.no_wait)
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return 0 if status.get("ok") else 1
     if args.command == "download":

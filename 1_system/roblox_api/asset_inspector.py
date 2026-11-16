@@ -154,6 +154,13 @@ def inspect_asset(client, asset_id: int, out_dir: Path, *, try_on: bool = False,
                 report.size_studs, report.suggested_scale = analyze_model(model)
                 if not model.parts:
                     report.warnings.append("Modell enthaelt keine Parts (evtl. Mesh/Union)")
+                for mesh_entry in model.meshes:
+                    mesh_id = rbxm_parser.RbxmParser.extract_asset_id(mesh_entry.get("mesh_id", ""))
+                    if mesh_id and mesh_id != asset_id:
+                        try:
+                            client.download_asset(mesh_id, out_dir / f"mesh_{mesh_id}")
+                        except Exception:  # noqa: BLE001 - Sub-Mesh ist optional
+                            pass
             elif path.suffix == ".obj":
                 geometry = rbxm_parser.parse_obj(path)
                 report.parts = len(geometry["vertices"])
@@ -249,18 +256,25 @@ def render_tryon(asset_id: int, out_dir: Path, out_png: Path,
 
     model_path = None
     out_dir = Path(out_dir)
-    for candidate in (out_dir / f"model_{asset_id}.obj", out_dir / f"thumb3d_{asset_id}.obj",
-                      out_dir / f"model_{asset_id}.glb", out_dir / f"model_{asset_id}.gltf"):
+    for candidate in (out_dir / f"model_{asset_id}.glb", out_dir / f"model_{asset_id}.gltf",
+                      out_dir / f"model_{asset_id}.obj", out_dir / f"thumb3d_{asset_id}.obj",
+                      out_dir / f"model_{asset_id}.rbxm", out_dir / f"model_{asset_id}.rbxmx",
+                      out_dir / f"{asset_id}.rbxm", out_dir / f"{asset_id}.rbxmx"):
         if candidate.is_file():
             model_path = candidate
             break
     if model_path is None:
         raise FileNotFoundError(
-            f"Kein importierbares Modell fuer Asset {asset_id} - Blender importiert "
-            "OBJ/glTF, RBXM wird vorher konvertiert")
+            f"Kein importierbares Modell fuer Asset {asset_id} "
+            "(unterstuetzt: .rbxm, .rbxmx, .glb, .gltf, .obj)")
+    scale = 1.0
+    if model_path.suffix.lower() in (".rbxm", ".rbxmx"):
+        parsed = rbxm_parser.RbxmParser().parse_file(model_path)
+        _, suggested = analyze_model(parsed)
+        scale = min(1.5, suggested)
     builder = world_builder.WorldBuilder(collection=collection)
     obj = builder.import_model(f"anprobe_{asset_id}", model_path, pos=(0, 0, 0), scale=1.0)
-    rig.attach_to_slot(character, slot, obj, scale=1.0)
+    rig.attach_to_slot(character, slot, obj, scale=scale)
 
     # Kamera: frontal, Kopf im oberen Drittel
     camera_data = bpy.data.cameras.new("TryOnCam")

@@ -40,11 +40,13 @@ def convert_to_glb(model_path: Path, out_glb: Path, scale: float = 1.0) -> Path:
     except ImportError as exc:  # pragma: no cover - braucht Blender
         raise RuntimeError("Konvertierung nach GLB braucht Blender (bpy)") from exc
 
-    model = rbxm_parser.RbxmParser().parse_file(Path(model_path))
+    model_path = Path(model_path)
+    model = rbxm_parser.RbxmParser().parse_file(model_path)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     collection = bpy.context.scene.collection
     parser = rbxm_parser.RbxmParser()
-    parser.import_into_blender(model, collection=collection, scale=scale)
+    parser.import_into_blender(model, collection=collection, scale=scale,
+                               mesh_dir=model_path.parent)
     out_glb = Path(out_glb)
     out_glb.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="SELECT")
@@ -71,6 +73,13 @@ def prepare_asset(client, asset_id: int, out_dir: Path = Path("assets/models"),
         result["error"] = f"unerwartetes Format {raw.suffix}"
         return result
     model = rbxm_parser.RbxmParser().parse_file(raw)
+    for mesh_entry in model.meshes:
+        mesh_id = rbxm_parser.RbxmParser.extract_asset_id(mesh_entry.get("mesh_id", ""))
+        if mesh_id and mesh_id != int(asset_id):
+            try:
+                client.download_asset(mesh_id, out_dir / f"mesh_{mesh_id}")
+            except Exception:  # noqa: BLE001 - Sub-Mesh ist optional
+                pass
     size, suggested = inspector.analyze_model(model)
     result["parts"] = len(model.parts)
     result["size_studs"] = [round(value, 3) for value in size]

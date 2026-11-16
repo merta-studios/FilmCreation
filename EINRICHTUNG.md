@@ -117,8 +117,11 @@ Ein Zeichen ≈ ein Credit.
    (`filmcreation-<run>-<id>`) und einen privaten Kernel
    (`<user>/filmcreation-<run>-<id>`) mit `machine_shape: NvidiaTeslaT4`,
    `enable_internet: true`, `is_private: true`. Der Kernel klont exakt den
-   Commit des Laufs, rendert die Shots auf zwei Workern, mergt das Manifest und
-   liefert die Ergebnisse an den wartenden GitHub-Runner zurück.
+   Commit des Laufs, rendert auf erkannte GPUs in separaten Worker-Verzeichnissen
+   und mergt die Manifeste. GitHub wartet nicht auf Kaggle: der 15-Minuten-Wächter
+   überwacht den Kernel und startet nach Abschluss Workflow 2; bei Fehlern wird
+   ein GitHub-Fallback-Render ausgelöst. Referenzierte Roblox-Assets in
+   `render_session/roblox_assets` werden offline ins private Session-Dataset gepackt.
 5. Ergebnis bei Bedarf manuell holen:
 
 ```bash
@@ -129,8 +132,10 @@ python -m 1_system.kaggle_bridge.parallel_render download \
 Die Kaggle-CLI muss dafür im `PATH` sein (`pip install kaggle`); die Workflows
 installieren sie selbst.
 
-**Wichtig:** Der Kernel bekommt keine Secrets. Er klont das öffentliche Repo und
-kennt nur die öffentlichen Konfigurationsdaten und Kernel-Slugs.
+**Wichtig:** Der Kernel bekommt keine GitHub-Callback-Tokens oder sonstigen
+GitHub-Secrets. Er klont das öffentliche Repo und kennt nur Konfigurationsdaten,
+Kernel-Slugs und offline gestagte Assets. Der automatische Callback erfolgt
+bewusst durch den GitHub-Wächter, nicht aus Kaggle heraus.
 
 ---
 

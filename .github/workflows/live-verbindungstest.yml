@@ -27,6 +27,10 @@ jobs:
           ELEVENLABS_API_KEY_4: ${{ secrets.ELEVENLABS_API_KEY_4 }}
           ELEVENLABS_API_KEY_5: ${{ secrets.ELEVENLABS_API_KEY_5 }}
           ELEVENLABS_API_KEY_6: ${{ secrets.ELEVENLABS_API_KEY_6 }}
+          ELEVENLABS_API_KEY_7: ${{ secrets.ELEVENLABS_API_KEY_7 }}
+          ELEVENLABS_API_KEY_8: ${{ secrets.ELEVENLABS_API_KEY_8 }}
+          ELEVENLABS_API_KEY_9: ${{ secrets.ELEVENLABS_API_KEY_9 }}
+          ELEVENLABS_API_KEY_10: ${{ secrets.ELEVENLABS_API_KEY_10 }}
         run: |
           python - <<'PY'
           import importlib, sys, requests
