@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -r 1_system/requirements.txt kaggle
+      - run: pip install -r 1_system/requirements.txt kaggle six
       - name: ElevenLabs (nur Guthaben)
         env:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}

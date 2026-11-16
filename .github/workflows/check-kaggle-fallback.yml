@@ -60,7 +60,7 @@ jobs:
         run: pip install -r 1_system/requirements.txt
 
       - name: Kaggle-CLI
-        run: pip install kaggle
+        run: pip install kaggle six
 
       - name: Waechter-Entscheidung
         env:

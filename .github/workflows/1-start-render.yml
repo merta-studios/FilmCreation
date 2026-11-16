@@ -196,7 +196,7 @@ jobs:
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
           GH_CALLBACK_TOKEN: ${{ secrets.GH_CALLBACK_TOKEN }}
         run: |
-          pip install kaggle
+          pip install kaggle six
           mkdir -p render_output
           args=(--shots "${{ inputs.shots }}"
                 --timeout-minutes "${{ inputs.kaggle_timeout_minutes }}"
