@@ -1,5 +1,28 @@
-# Vorgeschlagene Roblox-IDs aus der Aufgabenstellung; Rechte und IDs nicht live geprüft.
-# Die Wiedergabe im System ist nicht implementiert.
+# Roblox-Animationen und Emotes
+#
+# Wichtig: `r15` und `katalog` enthalten **Animation-Asset-IDs**, nicht die
+# Emote-Katalog-IDs. Der Loader (1_system/roblox_api/animation_loader.py) kann
+# beide Formen auflösen, aber für neue Einträge ist die Animations-ID robuster.
+#
+# Ablauf zum Einbau einer Animation:
+#   1. ID hier eintragen (z. B. aus dem Creator Store oder von einer Figur).
+#   2. Sichtprüfung/Anprobe:
+#      python -m 1_system.roblox_api.asset_inspector --assets <ID> --tryon
+#   3. In shots.py als `anim` verwenden - der Name ist der Schlüssel unten.
+#
+# Eingebaute, komplett selbst gebaute Clips (immer verfügbar, kein Download):
+#   comfort_shoulder, cover_eyes, cry_cover_face, fall_to_knees,
+#   freeze_as_statue, hand_over_object, head_shake, hold_hands, hug_a, hug_b,
+#   idle_breath, kneel_pray, lie_in_bed, look_up_wonder, nod, open_door_slowly,
+#   point_and_laugh, push_wheelchair, receive_object, run_scared,
+#   sit_desk_write, sit_ground, sit_wheelchair, stand_shy, step_back_scared,
+#   turn_away, walk_hurry, walk_sad, wave_goodbye_sad, wipe_tears
+#
+# Faustregel: Für alles, was eine Geschichte trägt (Hände halten, weinen,
+# Rollstuhl schieben), nimm einen eingebauten Clip. Roblox-Emotes sind
+# übertrieben cartoonhaft und brechen die Stimmung - sie passen nur für
+# Nebenfiguren und Momente mit Humor.
+
 r15:
   idle: [507766388, 507766666, 507766951]
   walk: [507777826]
@@ -14,6 +37,9 @@ r15:
   cheer: [507770677]
   laugh: [507770818]
   dance: [507771019, 507776043, 507777268]
+
+# Emote-Katalog. Werte sind Katalog-IDs; der Loader holt daraus die
+# eigentliche Animation. Vor dem Einbau anproben, IDs sind nicht garantiert.
 katalog:
   hello: 3576686446
   shrug: 3576968026
@@ -27,3 +53,22 @@ katalog:
   confused: 4940592718
   beckon: 5230598276
   bored: 5230599789
+
+# Figuren-spezifische Zuordnung: welche Animation für welche Figur passt.
+# Reine Dokumentation - der Scene-Builder liest shots.py.
+figuren:
+  hauptfigur:
+    gehen: [walk_sad, walk_hurry]
+    stehen: [idle_breath, stand_shy]
+    sitzen: [sit_ground, sit_desk_write, sit_wheelchair]
+    naehe: [hold_hands, hug_a, hug_b, comfort_shoulder]
+    trauer: [cry_cover_face, wipe_tears, cover_eyes, fall_to_knees]
+    hoffnung: [look_up_wonder, nod, hand_over_object, receive_object]
+  nebenfigur:
+    gehen: [walk_hurry, walk_sad]
+    stehen: [idle_breath]
+    sitzen: [sit_ground, sit_wheelchair]
+    reaktion: [head_shake, nod, step_back_scared, turn_away]
+  statist:
+    stehen: [idle_breath]
+    gehen: [walk_hurry]

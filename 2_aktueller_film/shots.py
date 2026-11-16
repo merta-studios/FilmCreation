@@ -1,7 +1,213 @@
-# Konzeptdaten, noch kein ausführbarer Regieplan.
+"""Regieplan: 14 Shots im 9:16-Hochformat, wortgenau an den Sprechtext gekoppelt.
+
+Aufbau eines Shots
+------------------
+    id, segment_id, title
+    camera: move, target, focal (mm), fill (0-1), azimuth (Grad), height, fstop,
+            arc_degrees, breathing
+    lighting: Stimmung aus 1_system/blender_engine/lighting_and_style.py
+    characters: [{id, at: [x, y, 0], facing, anim, face, counter, talking}]
+    sfx: ["rain", "steps"] oder {"kind": ..., "at_seconds": ..., "gain_db": ...}
+    triggers: [{"on_word": "Briefkasten", "action": "face", "value": "sad"}]
+    effects: {"particles": "rain", "fog": 1.3}
+
+Regeln: Kamera NIE statisch, Figuren mit den Fuessen auf z=0, Wort-Trigger nur mit
+Woertern, die im Segment wirklich vorkommen (prueft validate_film.py).
+"""
+
 SHOTS = [
-    {"id": 1, "segment_id": 1, "camera": "crane_reveal", "trigger_on_word": "Stadt"},
-    {"id": 2, "segment_id": 2, "camera": "slow_push_in", "trigger_on_word": "Mutter"},
-    {"id": 3, "segment_id": 3, "camera": "tracking_follow", "trigger_on_word": "Lina"},
-    {"id": 4, "segment_id": 4, "camera": "pull_out", "trigger_on_word": "Licht"},
+    {
+        "id": 1, "segment_id": 1, "title": "Die Stadt und ihre Regel",
+        "camera": {"move": "crane_reveal", "target": "mika", "focal": 32, "fill": 0.4,
+                   "azimuth": -38, "height": 3.2, "fstop": 4.0, "breathing": 1.2},
+        "lighting": "foggy_morning",
+        "characters": [{"id": "mika", "at": [0.4, 8.0, 0.0], "facing": 96,
+                        "anim": "walk_sad", "face": "sad", "counter": "9.847 Schritte",
+                        "speed": 0.8}],
+        "sfx": ["wind", {"kind": "city_ambience", "gain_db": -22}],
+        "effects": {"particles": "mist", "fog": 1.5},
+        "triggers": [{"on_word": "zehntausend", "action": "camera_focal", "value": 40}],
+    },
+    {
+        "id": 2, "segment_id": 2, "title": "Alle sparen ihre Schritte",
+        "camera": {"move": "dolly_right", "target": "mika", "focal": 38, "fill": 0.55,
+                   "azimuth": 24, "height": 3.0, "fstop": 2.8},
+        "lighting": "golden_hour",
+        "characters": [
+            {"id": "mika", "at": [1.0, 0.5, 0.0], "facing": 110, "anim": "walk_sad",
+             "face": "sad", "counter": "9.847 Schritte", "speed": 0.9},
+            {"id": "opa", "at": [-5.3, 2.4, 0.0], "facing": 90, "anim": "idle_breath",
+             "face": "neutral", "counter": "12 Schritte"},
+        ],
+        "sfx": [{"kind": "steps", "gain_db": -20}, {"kind": "city_ambience", "gain_db": -20}],
+        "triggers": [{"on_word": "Briefkasten", "action": "face", "value": "hopeful",
+                      "character": "mika"}],
+    },
+    {
+        "id": 3, "segment_id": 3, "title": "Mika stellt sich vor",
+        "camera": {"move": "slow_push_in", "target": "mika", "focal": 45, "fill": 0.62,
+                   "azimuth": -12, "height": 2.4, "fstop": 2.4},
+        "lighting": "overcast_school",
+        "characters": [{"id": "mika", "at": [0.6, -17.5, 0.0], "facing": 8,
+                        "anim": "walk_hurry", "face": "sad", "counter": "9.847 Schritte",
+                        "speed": 0.85}],
+        "sfx": ["steps"],
+        "triggers": [{"on_word": "Mutter", "action": "face", "value": "shy"}],
+    },
+    {
+        "id": 4, "segment_id": 4, "title": "Der Junge, der laufen muss",
+        "camera": {"move": "over_shoulder", "target": "mika", "focal": 50, "fill": 0.58,
+                   "azimuth": 8, "height": 3.4, "fstop": 2.0},
+        "lighting": "overcast_school",
+        "characters": [
+            {"id": "mika", "at": [0.4, -19.4, 0.0], "facing": 174, "anim": "stand_shy",
+             "face": "sad"},
+            {"id": "lina", "at": [1.5, -17.6, 0.0], "facing": 186, "anim": "point_and_laugh",
+             "face": "angry"},
+        ],
+        "sfx": [{"kind": "crowd_distant", "gain_db": -20}],
+        "triggers": [{"on_word": "Regen", "action": "face", "value": "crying",
+                      "character": "mika"}],
+    },
+    {
+        "id": 5, "segment_id": 5, "title": "Linas kalter Satz",
+        "camera": {"move": "rack_focus", "target": "mika", "focal": 58, "fill": 0.7,
+                   "azimuth": -6, "height": 5.6, "fstop": 1.8,
+                   "focus_near": 3.5, "focus_far": 9.0},
+        "lighting": "rainy_dusk",
+        "characters": [{"id": "mika", "at": [0.4, -19.4, 0.0], "facing": 8,
+                        "anim": "stand_shy", "face": "sad"}],
+        "sfx": [{"kind": "rain", "gain_db": -18}],
+        "effects": {"particles": "rain", "fog": 1.2},
+        "triggers": [{"on_word": "Rollstuhl", "action": "face", "value": "crying"}],
+    },
+    {
+        "id": 6, "segment_id": 6, "title": "Heimweg im Regen",
+        "camera": {"move": "tracking_follow", "target": "mika", "focal": 42, "fill": 0.5,
+                   "azimuth": 66, "height": 3.0, "fstop": 2.6},
+        "lighting": "rainy_dusk",
+        "characters": [{"id": "mika", "at": [0.2, -6.0, 0.0], "facing": 268,
+                        "anim": "walk_sad", "face": "tired", "counter": "6.120 Schritte"}],
+        "sfx": [{"kind": "rain", "gain_db": -16}, "steps",
+                {"kind": "city_ambience", "gain_db": -22}],
+        "effects": {"particles": "rain", "fog": 1.3},
+        "triggers": [{"on_word": "Fenster", "action": "counter", "value": "6.114 Schritte"}],
+    },
+    {
+        "id": 7, "segment_id": 7, "title": "Der Wunsch der Mutter",
+        "camera": {"move": "slow_push_in", "target": "mutter", "focal": 52, "fill": 0.7,
+                   "azimuth": -26, "height": 6.0, "fstop": 2.0},
+        "lighting": "warm_interior",
+        "characters": [
+            {"id": "mutter", "at": [-6.4, -2.0, 0.0], "facing": 96, "anim": "mutter_fenster",
+             "face": "tired", "counter": "300 Schritte"},
+            {"id": "mika", "at": [-4.6, -1.2, 0.0], "facing": 268, "anim": "mika_zoegert",
+             "face": "shy", "hidden": True},
+        ],
+        "practical_lights": [[-6.2, -3.4, 4.2], [-6.6, -0.4, 5.2]],
+        "sfx": [{"kind": "clock_tick", "gain_db": -26}],
+        "triggers": [{"on_word": "Stadt", "action": "face", "value": "hopeful"}],
+    },
+    {
+        "id": 8, "segment_id": 8, "title": "Dreihundert Schritte",
+        "camera": {"move": "orbit_arc", "target": "mutter", "focal": 40, "fill": 0.55,
+                   "azimuth": -60, "height": 4.2, "fstop": 2.2, "arc_degrees": 26},
+        "lighting": "rainy_dusk",
+        "characters": [{"id": "mutter", "at": [-6.4, -2.0, 0.0], "facing": 96,
+                        "anim": "look_up_wonder", "face": "sad", "counter": "300 Schritte"}],
+        "sfx": [{"kind": "heartbeat", "gain_db": -16},
+                {"kind": "rain", "gain_db": -20}],
+        "effects": {"particles": "rain", "fog": 1.1},
+        "triggers": [{"on_word": "vierhundert", "action": "face", "value": "crying"}],
+    },
+    {
+        "id": 9, "segment_id": 9, "title": "Der Rollstuhl frisst keine Schritte",
+        "camera": {"move": "tracking_follow", "target": "mika", "focal": 36, "fill": 0.46,
+                   "azimuth": 118, "height": 3.4, "fstop": 3.2},
+        "lighting": "golden_hour",
+        "characters": [
+            {"id": "mika", "at": [1.1, 5.9, 0.0], "facing": 92, "anim": "push_wheelchair",
+             "face": "hopeful"},
+            {"id": "mutter", "at": [1.9, 7.1, 0.0], "facing": 92, "anim": "sit_wheelchair",
+             "face": "tired", "counter": "300 Schritte"},
+        ],
+        "sfx": [{"kind": "wheelchair", "gain_db": -18},
+                {"kind": "wind", "gain_db": -24}],
+        "triggers": [{"on_word": "golden", "action": "face", "value": "happy",
+                      "character": "mutter"}],
+    },
+    {
+        "id": 10, "segment_id": 10, "title": "Erinnerungen auf dem Huegel",
+        "camera": {"move": "dolly_left", "target": "mutter", "focal": 44, "fill": 0.5,
+                   "azimuth": 62, "height": 3.8, "fstop": 2.4},
+        "lighting": "golden_hour",
+        "characters": [
+            {"id": "mika", "at": [1.1, 5.9, 0.0], "facing": 92, "anim": "push_wheelchair",
+             "face": "happy"},
+            {"id": "mutter", "at": [1.9, 7.1, 0.0], "facing": 92, "anim": "sit_wheelchair",
+             "face": "happy", "counter": "300 Schritte"},
+        ],
+        "sfx": [{"kind": "birds", "gain_db": -24}, {"kind": "wheelchair", "gain_db": -20}],
+        "triggers": [{"on_word": "früher", "action": "face", "value": "hopeful"}],
+    },
+    {
+        "id": 11, "segment_id": 11, "title": "Unter der Uhr",
+        "camera": {"move": "tilt_up_reveal", "target": [0.0, 29.5, 7.0], "focal": 34,
+                   "fill": 0.7, "azimuth": -8, "height": 2.2, "fstop": 4.0},
+        "lighting": "hopeful_dawn",
+        "characters": [
+            {"id": "mutter", "at": [1.3, 26.2, 0.0], "facing": 8, "anim": "sit_wheelchair",
+             "face": "sad", "counter": "300 Schritte"},
+            {"id": "mika", "at": [0.4, 25.4, 0.0], "facing": 6, "anim": "stand_shy",
+             "face": "sad"},
+        ],
+        "sfx": [{"kind": "clock_tick", "gain_db": -20}, {"kind": "wind", "gain_db": -26}],
+        "triggers": [{"on_word": "bewegt", "action": "face", "value": "crying"}],
+    },
+    {
+        "id": 12, "segment_id": 12, "title": "Zehn Schritte",
+        "camera": {"move": "orbit_arc", "target": "mutter", "focal": 48, "fill": 0.72,
+                   "azimuth": -32, "height": 4.4, "fstop": 1.8, "arc_degrees": 18},
+        "lighting": "hopeful_dawn",
+        "characters": [
+            {"id": "mutter", "at": [1.0, 26.4, 0.0], "facing": 274, "anim": "hug_b",
+             "face": "happy", "counter": "300 Schritte"},
+            {"id": "mika", "at": [0.1, 25.8, 0.0], "facing": 96, "anim": "hug_a",
+             "face": "hopeful"},
+        ],
+        "sfx": [{"kind": "heartbeat", "gain_db": -20}],
+        "triggers": [
+            {"on_word": "steht", "action": "anim", "value": "hug_b", "duration": 72,
+             "character": "mutter"},
+            {"on_word": "zählt", "action": "counter", "value": "10.000 Schritte",
+             "character": "mutter"},
+        ],
+    },
+    {
+        "id": 13, "segment_id": 13, "title": "Der Zaehler springt",
+        "camera": {"move": "pull_out", "target": "mutter", "focal": 30, "fill": 0.4,
+                   "azimuth": -46, "height": 5.2, "fstop": 3.5},
+        "lighting": "hopeful_dawn",
+        "characters": [
+            {"id": "mutter", "at": [1.0, 26.4, 0.0], "facing": 274, "anim": "hug_b",
+             "face": "happy", "counter": "9.900 Schritte"},
+            {"id": "mika", "at": [0.1, 25.8, 0.0], "facing": 96, "anim": "comfort_shoulder",
+             "face": "happy"},
+        ],
+        "sfx": [{"kind": "church_bell", "gain_db": -22}, {"kind": "birds", "gain_db": -26}],
+        "triggers": [{"on_word": "weint", "action": "counter", "value": "10.000 Schritte",
+                      "character": "mutter"}],
+    },
+    {
+        "id": 14, "segment_id": 13, "title": "Jeden Morgen zur Uhr",
+        "camera": {"move": "crane_reveal", "target": "mika", "focal": 28, "fill": 0.3,
+                   "azimuth": 34, "height": 3.0, "fstop": 5.6, "breathing": 1.3},
+        "lighting": "hopeful_dawn",
+        "characters": [{"id": "mika", "at": [0.6, 23.0, 0.0], "facing": 8,
+                        "anim": "walk_sad", "face": "hopeful", "speed": 0.7,
+                        "counter": "8.432 Schritte"}],
+        "sfx": [{"kind": "city_ambience", "gain_db": -24}, "steps"],
+        "effects": {"particles": "dust", "fog": 1.0},
+        "triggers": [{"on_word": "Weg", "action": "face", "value": "happy"}],
+    },
 ]

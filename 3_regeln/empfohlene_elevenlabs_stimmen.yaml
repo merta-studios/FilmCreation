@@ -1,6 +1,31 @@
-# Vom Betreiber auszufüllen; Stimme muss auf jedem genutzten Account verfügbar sein.
+# Stimmen für den aktuellen Film.
+#
+# Diese Datei ist gleichzeitig die Besetzungsliste: Jeder `speaker` in
+# 2_aktueller_film/script_and_voices.yaml braucht hier einen Eintrag mit
+# `voice_id`. Die ID findest du in ElevenLabs unter "Voices" (Rechtsklick auf
+# die Stimme -> Copy Voice ID).
+#
+# Pflicht: Die Stimme muss auf mindestens einem der konfigurierten API-Keys
+# freigeschaltet sein. Geteilte "Library"-Stimmen funktionieren nur, wenn sie
+# dem Konto hinzugefügt wurden.
+#
+# Regeln aus Erfahrung:
+# * Eine Erzählerstimme trägt 90-100 % des Texts. Wechsel klingen billig.
+# * Nebenstimmen: maximal 3, je 1-2 Sätze, deutlich anders im Timbre.
+# * `stability` 0.45-0.6 = lebendig; >0.7 = monoton, <0.35 = instabil.
+# * `similarity_boost` 0.7-0.8 ist der sichere Bereich.
+
 haupt_erzaehler:
-  voice_id: null
+  voice_id: null            # HIER eintragen, sonst kein Render
   stability: 0.5
   similarity_boost: 0.75
-nebenstimmen: []
+
+# Format: speaker-id: {voice_id: ..., stability: ...}
+# Die IDs muessen zu `speaker:` in script_and_voices.yaml passen.
+nebenstimmen: {}
+#  neb_lina:
+#    voice_id: "EXAVITQu4vr4xnSDxMaL"
+#    stability: 0.55
+#  neb_vater:
+#    voice_id: "pNInz6obpgDQGcFmaJgB"
+#    stability: 0.6

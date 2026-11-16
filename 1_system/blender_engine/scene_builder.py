@@ -1,217 +1,529 @@
-"""Render the built-in vertical demo using Blender's Python API.
+"""Baut aus ``2_aktueller_film/`` echte 9:16-Blender-Shots und rendert sie.
 
-Run with Blender's Python: blender -b -t 2 --python ... -- --output ...
-or with the bpy Python wheel: python -m 1_system.blender_engine.scene_builder ...
+Der Scene-Builder ist die einzige Stelle, die Figuren, Map, Licht, Kamera und
+Animationen zusammenbringt. Er laeuft:
+
+* **lokal** ueber ``python -m 1_system.blender_engine.scene_builder ...``
+* **auf Kaggle** fuer jeden Shot in einem eigenen Blender-Prozess (eine GPU pro Prozess)
+
+Beispiele
+---------
+Schnelle Vorschau aller Shots (1 Bild pro Shot, 540x960, 8 Samples)::
+
+    python -m 1_system.blender_engine.scene_builder --preview-storyboard --out-dir preview/
+
+Finale Shots 3 und 4 in 1080x1920 mit 128 Samples::
+
+    python -m 1_system.blender_engine.scene_builder --shots 3,4 --samples 128 --out-dir out/shots
+
+Der Builder schreibt ``render_manifest.json`` mit Frames, Pfaden und Kamera-Daten.
 """
 from __future__ import annotations
 
 import argparse
+import importlib
+import json
 import math
-from pathlib import Path
+import os
 import sys
+import time
+from pathlib import Path
+from typing import Optional
 
-import bpy
-from mathutils import Vector
+try:
+    import bpy  # type: ignore
+    HAS_BPY = True
+except ImportError:  # pragma: no cover
+    bpy = None  # type: ignore
+    HAS_BPY = False
 
-PALETTE = {
-    'skin': (0.95, .72, .36, 1), 'shirt_blue': (.22,.38,.48,1),
-    'shirt_green': (.31,.43,.33,1), 'shirt_red': (.55,.28,.28,1),
-    'pants': (.11,.15,.21,1), 'road': (.12,.14,.16,1),
-    'walk': (.39,.37,.32,1), 'brick': (.43,.20,.16,1),
-    'plaster': (.62,.51,.37,1), 'roof': (.18,.14,.13,1),
-    'wood': (.25,.15,.08,1), 'leaf': (.18,.30,.19,1),
-    'glass': (1,.65,.25,1), 'white': (.9,.84,.70,1),
-    'metal': (.14,.16,.17,1), 'grass': (.19,.27,.17,1),
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+rig_r15 = importlib.import_module("1_system.blender_engine.rig_r15")
+animations = importlib.import_module("1_system.blender_engine.custom_animations")
+primitives = importlib.import_module("1_system.blender_engine.primitives_and_map")
+lighting = importlib.import_module("1_system.blender_engine.lighting_and_style")
+camera_engine = importlib.import_module("1_system.blender_engine.fluid_camera")
+roblox_textures = importlib.import_module("1_system.blender_engine.roblox_textures")
+text_and_signs = importlib.import_module("1_system.blender_engine.text_and_signs")
+timeline_sync = importlib.import_module("1_system.audio.timeline_sync")
+film_loader = importlib.import_module("1_system.tools.film_loader")
+
+QUALITY_PRESETS = {
+    "preview": dict(width=540, height=960, samples=8, denoise=True),
+    "high": dict(width=1080, height=1920, samples=96, denoise=True),
+    "max": dict(width=1080, height=1920, samples=320, denoise=True),
 }
-_MATERIALS = {}
 
 
-def material(name, emission=0):
-    key = (name, emission)
-    if key not in _MATERIALS:
-        mat = bpy.data.materials.new(name)
-        mat.diffuse_color = PALETTE[name]
-        mat.use_nodes = True
-        shader = mat.node_tree.nodes.get('Principled BSDF')
-        shader.inputs['Base Color'].default_value = PALETTE[name]
-        shader.inputs['Roughness'].default_value = .7
-        if emission:
-            shader.inputs['Emission Color'].default_value = PALETTE[name]
-            shader.inputs['Emission Strength'].default_value = emission
-        _MATERIALS[key] = mat
-    return _MATERIALS[key]
+def log(message: str) -> None:
+    print(f"[scene_builder] {message}", flush=True)
 
 
-def block(name, loc, scale, color, rotation=(0,0,0), emission=0):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=loc, rotation=rotation)
-    obj = bpy.context.object
-    obj.name = name
-    obj.dimensions = scale
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    obj.data.materials.append(material(color, emission))
-    bevel = obj.modifiers.new('soft corners', 'BEVEL')
-    bevel.width = .03
-    bevel.segments = 2
-    obj.modifiers.new('weighted normals', 'WEIGHTED_NORMAL')
-    return obj
+class SceneBuilder:
+    """Ein Film, viele Shots: baut und rendert, was die Timeline vorgibt."""
+
+    def __init__(self, film, timeline: dict, width: int = 1080, height: int = 1920,
+                 samples: int = 96, device: str = "GPU", seed: int = 2026,
+                 force: bool = False):
+        self.film = film
+        self.timeline = timeline
+        self.width = width
+        self.height = height
+        self.samples = samples
+        self.device = device
+        self.seed = seed
+        self.force = force
+        self.shots = timeline.get("shots") or []
+        self.specs = {int(shot["id"]): shot for shot in film.shots}
+
+    # -- Szene ----------------------------------------------------------- #
+    def reset_scene(self) -> None:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        scene = bpy.context.scene
+        scene.render.resolution_x = self.width
+        scene.render.resolution_y = self.height
+        scene.render.resolution_percentage = 100
+        scene.render.fps = int(self.timeline.get("fps", 24))
+        scene.render.use_persistent_data = True
+        scene.render.image_settings.file_format = "FFMPEG"
+        scene.render.ffmpeg.format = "MPEG4"
+        scene.render.ffmpeg.codec = "H264"
+        scene.render.ffmpeg.constant_rate_factor = "HIGH"
+        scene.render.ffmpeg.ffmpeg_preset = "GOOD"
+        scene.render.ffmpeg.audio_codec = "NONE"
+        scene.render.film_transparent = False
+        lighting.setup_render(scene, self.samples, True, self.device)
+        return scene
+
+    # -- Figuren --------------------------------------------------------- #
+    def _character_colors(self, spec: dict) -> dict:
+        skin = spec.get("skin") or spec.get("skin_color") or "fair"
+        if skin in roblox_textures.SKIN_COLORS:
+            skin = roblox_textures.SKIN_COLORS[skin]
+        return {
+            "skin_color": skin,
+            "shirt_color": spec.get("shirt") or spec.get("shirt_color") or "#0D69AC",
+            "pants_color": spec.get("pants") or spec.get("pants_color") or "#1B2A35",
+        }
+
+    def build_characters(self, shot_spec: dict, collection) -> dict[str, dict]:
+        """Baut alle Figuren, die im Shot vorkommen (plus Kamera-Ziele)."""
+        placed: dict[str, dict] = {}
+        entries = list(shot_spec.get("characters") or [])
+        target = (shot_spec.get("camera") or {}).get("target")
+        if isinstance(target, str) and target not in [c.get("id") for c in entries]:
+            entries.append({"id": target, "at": [0, 0, 0], "hidden": True})
+        used_ids = {str(entry.get("id")) for entry in entries}
+        for spec in self.film.characters:
+            if str(spec.get("id")) not in used_ids:
+                continue
+            entry = next(e for e in entries if str(e.get("id")) == str(spec.get("id")))
+            colors = self._character_colors(spec)
+            at = entry.get("at") or [0.0, 0.0, 0.0]
+            scale = float(spec.get("height_scale", spec.get("scale", 1.0)))
+            face = entry.get("face") or spec.get("face") or "neutral"
+            character = rig_r15.build_r15(
+                name=str(spec.get("name") or spec.get("id")),
+                skin_color=colors["skin_color"],
+                shirt_color=colors["shirt_color"],
+                pants_color=colors["pants_color"],
+                face=face,
+                height_scale=scale,
+                collection=collection,
+                location=(float(at[0]), float(at[1]), float(at[2])),
+                rotation_z_deg=float(entry.get("facing", spec.get("facing", 0.0))),
+                face_texture_path=spec.get("face_texture"),
+                shirt_texture_path=spec.get("shirt_texture"),
+                pants_texture_path=spec.get("pants_texture"),
+            )
+            character["_location"] = (float(at[0]), float(at[1]), float(at[2]))
+            character["spec"] = spec
+            character["shot_entry"] = entry
+            if entry.get("hidden"):
+                character["root"].hide_render = True
+            placed[str(spec.get("id"))] = character
+            if entry.get("accessories"):
+                self._attach_accessories(character, entry["accessories"], collection)
+        return placed
+
+    def _attach_accessories(self, character: dict, accessories: list, collection) -> None:
+        """Haengt konvertierte Katalog-Artikel an Standard-Attachments."""
+        for accessory in accessories:
+            path = accessory.get("path") or accessory.get("file")
+            slot = accessory.get("slot", "HatAttachment")
+            if not path or not Path(path).is_file():
+                log(f"Hinweis: Accessoire ohne Datei uebersprungen ({accessory.get('id', '?')})")
+                continue
+            world = primitives.WorldBuilder(collection)
+            obj = world.import_model(f"{character['name']}_{accessory.get('id', 'acc')}",
+                                     Path(path), pos=(0, 0, 0),
+                                     scale=float(accessory.get("scale", 1.0)))
+            if obj is not None:
+                rig_r15.attach_to_slot(character, slot, obj,
+                                       float(accessory.get("scale", 1.0)),
+                                       tuple(accessory.get("offset", (0, 0, 0))))
+
+    # -- Map ------------------------------------------------------------- #
+    def build_map(self, shot_spec: dict, collection):
+        """Baut die Stadt und gibt den WorldBuilder zurueck (fuer Schilder/Zaehler)."""
+        config = self.film.config or {}
+        era = str(config.get("look_era") or shot_spec.get("era") or "mix")
+        quality = str(config.get("qualitaet", "high")).lower()
+        library = primitives.TextureLibrary(preview=quality == "preview")
+        world = primitives.WorldBuilder(collection, library,
+                                        era="classic" if era == "classic" else "modern",
+                                        preview=quality == "preview")
+        world.custom_models = self.film.models
+        shot_id = int(shot_spec.get("id", 0))
+        entries = []
+        for entry in self.film.objects:
+            allowed = entry.get("shots") or entry.get("only_in")
+            if allowed and shot_id not in [int(s) for s in allowed]:
+                continue
+            entries.append(entry)
+        # individuelle Map-Erweiterung des Shots
+        entries.extend(shot_spec.get("extra_objects") or [])
+        try:
+            primitives.build_spec(entries, world)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"Map-Aufbau fehlgeschlagen in Shot {shot_id}: {exc}") from exc
+        build_hook = shot_spec.get("map_hook")
+        if build_hook:
+            function = getattr(self.film.modules["map_and_props"], str(build_hook), None)
+            if callable(function):
+                function(world)
+        return world
+
+    # -- Animation ------------------------------------------------------- #
+    def animate_characters(self, characters: dict[str, dict], shot_spec: dict,
+                           frames: int) -> dict:
+        info: dict[str, list] = {}
+        for character_id, character in characters.items():
+            entry = character.get("shot_entry") or {}
+            if character.get("root") is not None and character["root"].hide_render:
+                continue
+            anim_name = entry.get("anim") or "idle_breath"
+            library = self.film.animations or animations.library()
+            try:
+                clip = library.get(anim_name) if library.has(anim_name) else animations.library().get(anim_name)
+            except KeyError:
+                raise KeyError(
+                    f"Shot {shot_spec.get('id')}: Animation '{anim_name}' existiert nicht "
+                    f"(Figur {character_id}). Verfuegbar: {', '.join(library.names())}")
+            speed = max(0.25, float(entry.get("speed", 1.0)))
+            duration = max(4, int(round(frames / speed)))
+            applied = animations.apply_clip(
+                character, clip, start_frame=1, duration=duration,
+                alive=bool(entry.get("alive", True)),
+                seed=abs(hash(character_id)) % 1000 + self.seed % 97)
+            info.setdefault(character_id, []).append(applied)
+            for extra in entry.get("extra_anims") or []:
+                extra_clip = (library.get(extra["name"]) if library.has(extra["name"])
+                              else animations.library().get(extra["name"]))
+                animations.apply_clip(character, extra_clip,
+                                      start_frame=int(extra.get("start_frame", 1)),
+                                      duration=int(extra.get("duration", extra_clip.duration)),
+                                      alive=False)
+            face = entry.get("face")
+            if face:
+                animations.key_face(character, str(face), 1)
+            if entry.get("talking"):
+                rig_r15.set_talking(character, 1, frames, seed=abs(hash(character_id)) % 17)
+            counter = entry.get("counter") or (character.get("spec") or {}).get("counter")
+            if counter:
+                value = counter.get("start") if isinstance(counter, dict) else counter
+                label = counter.get("label", "") if isinstance(counter, dict) else ""
+                text = f"{value} {label}".strip()
+                text_and_signs.make_billboard_counter(
+                    character, text, collection=character.get("collection"),
+                    camera=bpy.context.scene.camera)
+        return info
+
+    # -- Trigger --------------------------------------------------------- #
+    def apply_triggers(self, shot_spec: dict, characters: dict[str, dict],
+                       timeline_shot: dict, world) -> list[dict]:
+        """Fuehrt Wort-Trigger des Shots aus (Gesicht, Zaehler, Kamera, Emote...)."""
+        triggers = shot_spec.get("triggers") or []
+        executed: list[dict] = []
+        segment_id = int(timeline_shot["segment_id"])
+        segment = next((s for s in self.timeline["segments"]
+                        if int(s["segment_id"]) == segment_id), None)
+        if segment is None:
+            return executed
+        for trigger in triggers:
+            word = str(trigger.get("on_word", ""))
+            frame = self._frame_for_word(segment, word, int(trigger.get("occurrence", 0)))
+            if frame is None:
+                raise ValueError(f"Shot {shot_spec.get('id')}: Wort-Trigger '{word}' "
+                                 "kommt im Segment nicht vor")
+            frame = max(1, frame - int(timeline_shot["start_frame"]))
+            action = str(trigger.get("action", ""))
+            value = trigger.get("value")
+            character = characters.get(str(trigger.get("character") or shot_spec.get("camera", {}).get("target") or ""))
+            if action == "face" and character:
+                animations.key_face(character, str(value), frame)
+            elif action == "counter" and character:
+                for handle in character.get("counters", []):
+                    text_and_signs.update_counter(handle, str(value), frame)
+            elif action == "anim" and character:
+                library = self.film.animations or animations.library()
+                clip = library.get(str(value)) if library.has(str(value)) else animations.library().get(str(value))
+                animations.apply_clip(character, clip, start_frame=frame,
+                                      duration=int(trigger.get("duration", clip.duration)))
+            elif action == "statue" and character:
+                rig_r15.set_stone(character, True)
+            elif action == "camera_focal":
+                camera = bpy.context.scene.camera
+                camera.data.lens = float(value)
+                camera.data.keyframe_insert("lens", frame=frame)
+            elif action == "camera_focus":
+                camera = bpy.context.scene.camera
+                camera.data.dof.focus_distance = float(value)
+                camera.data.dof.keyframe_insert("focus_distance", frame=frame)
+            elif action in ("sfx", "music", "shake"):
+                pass  # Audio-Trigger werden beim Mastering ausgewertet
+            else:
+                log(f"Warnung: Trigger-Aktion '{action}' unbekannt (Shot {shot_spec.get('id')})")
+                continue
+            executed.append({"action": action, "word": word, "frame": frame,
+                             "value": value, "character": trigger.get("character")})
+        return executed
+
+    @staticmethod
+    def _frame_for_word(segment: dict, word: str, occurrence: int = 0) -> Optional[int]:
+        target = timeline_sync.clean_word(word)
+        seen = 0
+        for entry in segment.get("words", []):
+            if timeline_sync.clean_word(entry["word"]) == target:
+                if seen == occurrence:
+                    return int(entry["start_frame"])
+                seen += 1
+        return None
+
+    # -- ein Shot -------------------------------------------------------- #
+    def build_shot(self, shot_id: int, output_path: Path, still: bool = False,
+                   still_frame: Optional[int] = None, frames_override: Optional[int] = None) -> dict:
+        """Baut und rendert einen Shot. Gibt einen Manifest-Eintrag zurueck."""
+        require_bpy_ready()
+        spec = self.specs.get(int(shot_id))
+        if spec is None:
+            raise KeyError(f"Shot {shot_id} fehlt in shots.py")
+        timeline_shot = next((s for s in self.shots if int(s["id"]) == int(shot_id)), None)
+        if timeline_shot is None:
+            raise KeyError(f"Shot {shot_id} fehlt in der aufgeloesten Timeline")
+        frames = int(frames_override or timeline_shot["frames"])
+        if frames < 2 and not still:
+            raise ValueError(f"Shot {shot_id} ist kuerzer als 2 Frames")
+
+        started = time.time()
+        scene = self.reset_scene()
+        scene.frame_start, scene.frame_end = 1, max(2, frames)
+        collection = bpy.data.collections.new(f"Shot_{shot_id}")
+        scene.collection.children.link(collection)
+
+        characters = self.build_characters(spec, collection)
+        world = self.build_map(spec, collection)
+
+        mood = str(spec.get("lighting") or "golden_hour")
+        effects = spec.get("effects") or {}
+        lighting.apply_mood(
+            scene, mood,
+            practical_locations=spec.get("practical_lights") or [],
+            particles=effects.get("particles", "auto"),
+            fog_multiplier=float(effects.get("fog", 1.0)),
+            sun_override=spec.get("sun"),
+        )
+        if spec.get("vignette", True):
+            lighting.add_vignette(scene, float(spec.get("vignette_strength", 0.35)))
+        if spec.get("motion_blur"):
+            lighting.enable_motion_blur(scene, float(spec.get("motion_blur")))
+
+        # Kamera zuerst, damit Zaehler sie als Billboard nutzen koennen
+        rig = camera_engine.CameraRig(scene, (self.width, self.height),
+                                      int(self.timeline.get("fps", 24)))
+        subjects = characters
+        tracking = spec.get("camera", {}).get("move") in ("tracking_follow", "handheld_walk")
+        subject_positions = None
+        if tracking:
+            target_id = (spec.get("camera") or {}).get("target")
+            subject = characters.get(str(target_id))
+
+            def subject_positions(frame_index: int) -> tuple[float, float, float]:
+                if subject is None:
+                    return (0.0, 0.0, 2.0)
+                location = subject["root"].location
+                return (location.x, location.y, location.z + 2.0)
+        camera_info = rig.build(spec.get("camera") or {}, max(2, frames), subjects,
+                                subject_positions)
+
+        animation_info = self.animate_characters(characters, spec, max(2, frames))
+        trigger_info = self.apply_triggers(spec, characters, timeline_shot, world)
+
+        for name in spec.get("set_frame_lights") or []:
+            log(f"Shot {shot_id}: Zusatzlicht {name}")
+
+        scene.frame_set(1)
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        scene.render.filepath = str(output_path)
+        if still:
+            scene.render.image_settings.file_format = "PNG"
+            scene.frame_set(int(still_frame or max(1, frames // 2)))
+            bpy.ops.render.render(write_still=True)
+        else:
+            scene.render.use_file_extension = True
+            bpy.ops.render.render(animation=True)
+
+        # Blender haengt bei FFMPEG selbst die Endung an
+        produced = output_path
+        if not still and not produced.is_file():
+            candidate = output_path.with_suffix(".mp4")
+            if candidate.is_file():
+                produced = candidate
+            elif output_path.with_name(output_path.name + ".mp4").is_file():
+                produced = output_path.with_name(output_path.name + ".mp4")
+        if not produced.is_file():
+            raise RuntimeError(f"Blender hat keinen Output erzeugt: {output_path}")
+
+        entry = {
+            "id": int(shot_id),
+            "segment_id": int(timeline_shot["segment_id"]),
+            "title": str(spec.get("title") or timeline_shot.get("title") or f"Shot {shot_id}"),
+            "frames": frames,
+            "start_frame": int(timeline_shot["start_frame"]),
+            "end_frame": int(timeline_shot["end_frame"]),
+            "path": str(produced),
+            "still": bool(still),
+            "lighting": mood,
+            "camera": camera_engine.camera_report(camera_info),
+            "characters": sorted(characters),
+            "animations": {k: [a["clip"] for a in v] for k, v in animation_info.items()},
+            "triggers": trigger_info,
+            "render_seconds": round(time.time() - started, 2),
+            "width": self.width, "height": self.height, "samples": self.samples,
+        }
+        log(f"Shot {shot_id}: {frames} Frames in {entry['render_seconds']} s -> {produced.name}")
+        return entry
 
 
-def cylinder(name, loc, radius, depth, color):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=radius, depth=depth, location=loc)
-    obj = bpy.context.object
-    obj.name = name
-    obj.data.materials.append(material(color))
-    return obj
+def require_bpy_ready() -> None:
+    if not HAS_BPY:
+        raise RuntimeError("Scene-Builder braucht Blender. Auf GitHub laeuft er im "
+                           "Blender-Schritt, lokal mit 'pip install bpy==4.2.0'.")
 
 
-def text(name, content, loc, size=.35, color='white'):
-    curve = bpy.data.curves.new(name, 'FONT')
-    curve.body = content
-    curve.align_x = 'CENTER'
-    curve.size = size
-    curve.extrude = .005
-    obj = bpy.data.objects.new(name, curve)
-    bpy.context.collection.objects.link(obj)
-    obj.location = loc
-    obj.rotation_euler = (math.pi/2, 0, 0)
-    obj.data.materials.append(material(color, 0.4))
-    return obj
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+def _parse_shots(value: str, available: list[int]) -> list[int]:
+    if value in ("", "all", "alle"):
+        return sorted(available)
+    selected: list[int] = []
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            low, high = part.split("-", 1)
+            selected.extend(range(int(low), int(high) + 1))
+        else:
+            selected.append(int(part))
+    unknown = [s for s in selected if s not in available]
+    if unknown:
+        raise SystemExit(f"Shots {unknown} existieren nicht. Verfuegbar: {available}")
+    return sorted(dict.fromkeys(selected))
 
 
-def make_character(name, x, y, shirt, number, frames):
-    # Fifteen independent R15-style blocks; the animation below moves them, but
-    # this is not a Roblox-compatible skeletal rig or a licensed avatar import.
-    parts = [
-        ('Head', (0,0,2.25), (.58,.52,.57), 'skin'),
-        ('UpperTorso', (0,0,1.67), (.76,.45,.55), shirt),
-        ('LowerTorso', (0,0,1.23), (.72,.43,.32), shirt),
-        ('LeftUpperArm', (-.53,0,1.68), (.26,.32,.48), shirt),
-        ('LeftLowerArm', (-.53,0,1.27), (.23,.28,.37), 'skin'),
-        ('LeftHand', (-.53,0,1.02), (.23,.27,.15), 'skin'),
-        ('RightUpperArm', (.53,0,1.68), (.26,.32,.48), shirt),
-        ('RightLowerArm', (.53,0,1.27), (.23,.28,.37), 'skin'),
-        ('RightHand', (.53,0,1.02), (.23,.27,.15), 'skin'),
-        ('LeftUpperLeg', (-.2,0,.89), (.33,.37,.38), 'pants'),
-        ('LeftLowerLeg', (-.2,0,.49), (.30,.34,.42), 'pants'),
-        ('LeftFoot', (-.2,-.08,.13), (.32,.48,.22), 'pants'),
-        ('RightUpperLeg', (.2,0,.89), (.33,.37,.38), 'pants'),
-        ('RightLowerLeg', (.2,0,.49), (.30,.34,.42), 'pants'),
-        ('RightFoot', (.2,-.08,.13), (.32,.48,.22), 'pants'),
-    ]
-    for part, p, dims, color in parts:
-        obj = block(name+'_'+part, (x+p[0], y+p[1], p[2]), dims, color)
-        # Gentle, deterministic breathing/weight shift, not a walk cycle.
-        base = obj.location.copy()
-        for frame in sorted(set(range(1, frames + 1, 48)) | {frames}):
-            phase = math.sin(frame/48*math.pi + x)
-            obj.location = (base.x + .014*phase, base.y, base.z + .008*phase)
-            obj.keyframe_insert(data_path='location', frame=frame)
-    for dx in (-.13, .13):
-        block(name+'_eye', (x+dx, y-.27, 2.30), (.065,.018,.09), 'metal')
-    block(name+'_mouth', (x,y-.276,2.13), (.15,.015,.025), 'metal')
-    text(name+'_counter', number, (x,y-.03,2.95), .26)
+def main(argv: Optional[list[str]] = None) -> int:
+    if argv is None:
+        # Aufruf ueber "blender -b -P scene_builder.py -- ..." ueberspringt das "--"
+        argv = list(sys.argv[1:])
+        if "--" in argv:
+            argv = argv[argv.index("--") + 1:]
+    parser = argparse.ArgumentParser(description="9:16-Shots aus dem aktuellen Film bauen")
+    parser.add_argument("--film-dir", type=Path, default=film_loader.FILM_DIR_DEFAULT)
+    parser.add_argument("--timeline", type=Path, default=Path("render_session/timeline_resolved.json"))
+    parser.add_argument("--shots", default="all", help="z. B. '1,3,4' oder '2-5' oder 'all'")
+    parser.add_argument("--out-dir", type=Path, default=Path("render_output/shots"))
+    parser.add_argument("--width", type=int, default=1080)
+    parser.add_argument("--height", type=int, default=1920)
+    parser.add_argument("--samples", type=int, default=96)
+    parser.add_argument("--quality", choices=sorted(QUALITY_PRESETS), default=None)
+    parser.add_argument("--device", default=os.environ.get("RENDER_DEVICE", "GPU"))
+    parser.add_argument("--still", action="store_true", help="nur ein Standbild pro Shot")
+    parser.add_argument("--preview-storyboard", action="store_true",
+                        help="1 Standbild pro Shot in Vorschauqualitaet")
+    parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--list-shots", action="store_true")
+    args = parser.parse_args(argv)
 
+    if args.quality:
+        preset = QUALITY_PRESETS[args.quality]
+        args.width, args.height = preset["width"], preset["height"]
+        args.samples = preset["samples"]
+    if args.preview_storyboard:
+        args.width, args.height, args.samples, args.still = 540, 960, 8, True
+    if args.width * 16 != args.height * 9:
+        raise SystemExit(f"Aufloesung {args.width}x{args.height} ist nicht 9:16")
 
-def build_map():
-    block('ground', (0,2,-.18), (32,45,.3), 'grass')
-    block('road', (0,2,0), (5,35,.08), 'road', (0,0,.08))
-    block('walk_left', (-3.1,2,.05), (1.4,35,.12), 'walk', (0,0,.08))
-    block('walk_right', (3.1,2,.05), (1.4,35,.12), 'walk', (0,0,.08))
-    for side in (-1,1):
-        for row in range(5):
-            y = row*6 - 4
-            x = side*(6.0 + (row%2)*.6)
-            height = 4.5 + row%3
-            block(f'house_{side}_{row}', (x,y,height/2), (4,4,height), 'brick' if row%2 else 'plaster')
-            block(f'roof_{side}_{row}', (x,y,height+.18), (4.4,4.4,.35), 'roof')
-            for z in (1.5,3.2):
-                for dx in (-.9,.9):
-                    block('window', (x+dx,y-2.04,z), (.8,.08,1.0), 'glass', emission=.5)
-            cylinder('lamp_post', (side*3.4,y,2.1), .065, 4.2, 'metal')
-            block('lamp', (side*3.4,y,4.2), (.35,.35,.35), 'glass', emission=3)
-            cylinder('tree_trunk', (side*9,y+2,1.0), .20, 2, 'wood')
-            bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=1.3, location=(side*9,y+2,3))
-            bpy.context.object.data.materials.append(material('leaf'))
-    text('town_sign', 'SCHRITTSTADT', (0,7,4.3), .6)
-    block('sign_back', (0,7.1,4.5), (5,.2,.9), 'wood')
-
-
-def camera(shot, frames):
-    bpy.ops.object.camera_add()
-    cam = bpy.context.object
-    bpy.context.scene.camera = cam
-    cam.data.lens = 37
-    cam.data.dof.use_dof = True
-    cam.data.dof.focus_distance = 9
-    cam.data.dof.aperture_fstop = 5.6
-    positions = {
-        1: ((4,-12,6), (2.4,-10,4.8)),
-        2: ((-1.2,-9,3.0), (-.8,-7.5,2.7)),
-        3: ((3,-8,3.4), (1.8,-7.2,2.8)),
-        4: ((0,-7,2.8), (1.5,-10,4.0)),
-    }
-    start, end = positions[shot]
-    target = Vector((0,0,1.8))
-    for frame, pos in ((1,start), (max(2,frames),end)):
-        cam.location = pos
-        cam.rotation_euler = (target - cam.location).to_track_quat('-Z','Y').to_euler()
-        cam.keyframe_insert('location', frame=frame)
-        cam.keyframe_insert('rotation_euler', frame=frame)
-    return cam
-
-
-def build_scene(shot, frames, width, height, samples):
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.delete(use_global=False)
-    _MATERIALS.clear()
-    scene = bpy.context.scene
-    scene.render.engine = 'CYCLES'
-    scene.cycles.samples = samples
-    scene.cycles.use_denoising = True
-    scene.render.resolution_x, scene.render.resolution_y = width, height
-    scene.render.resolution_percentage = 100
-    scene.render.fps = 24
-    scene.frame_start, scene.frame_end = 1, frames
-    scene.world.color = (.22,.25,.32)
-    bpy.ops.object.light_add(type='SUN', location=(0,-5,10))
-    sun = bpy.context.object
-    sun.data.energy = 2.0
-    sun.data.color = (1,.76,.55)
-    sun.rotation_euler = (.5,-.5,-.4)
-    build_map()
-    make_character('Mika', 0,0, 'shirt_blue', '0920', frames)
-    make_character('Mara', -1.5, .7, 'shirt_green', '0012', frames)
-    make_character('Lina', 1.5,.7, 'shirt_red', '6210', frames)
-    camera(shot, frames)
-    return scene
-
-
-def main():
-    argv = sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else sys.argv[1:]
-    p = argparse.ArgumentParser()
-    p.add_argument('--shot', type=int, choices=(1,2,3,4), default=1)
-    p.add_argument('--frames', type=int, default=48)
-    p.add_argument('--output', type=Path, required=True)
-    p.add_argument('--width', type=int, default=540)
-    p.add_argument('--height', type=int, default=960)
-    p.add_argument('--samples', type=int, default=16)
-    p.add_argument('--still', action='store_true')
-    args = p.parse_args(argv)
-    if args.frames < 2 or args.width <= 0 or args.height <= 0 or args.samples < 1:
-        p.error('Ungültige Renderparameter')
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    scene = build_scene(args.shot, args.frames, args.width, args.height, args.samples)
-    scene.render.filepath = str(args.output.resolve())
-    if args.still:
-        scene.render.image_settings.file_format = 'PNG'
-        scene.frame_set(max(1, args.frames//2))
-        bpy.ops.render.render(write_still=True)
+    film = film_loader.load_film(args.film_dir)
+    if args.timeline.is_file():
+        timeline = timeline_sync.load_timeline(args.timeline)
     else:
-        scene.render.image_settings.file_format = 'FFMPEG'
-        scene.render.ffmpeg.format = 'MPEG4'
-        scene.render.ffmpeg.codec = 'H264'
-        scene.render.ffmpeg.constant_rate_factor = 'HIGH'
-        bpy.ops.render.render(animation=True)
+        # Standbilder ohne Audio: alle Shots mit fester Laenge
+        timeline = {"fps": film.fps, "width": args.width, "height": args.height,
+                    "total_frames": 24 * 5, "total_seconds": 5.0, "word_cues": [],
+                    "segments": [], "shots": [
+                        {"id": int(shot["id"]), "segment_id": int(shot["segment_id"]),
+                         "start_frame": 0, "end_frame": 24 * 5, "frames": 24 * 5,
+                         "title": shot.get("title", "")}
+                        for shot in film.shots]}
+        if not args.still and not args.preview_storyboard:
+            raise SystemExit("Ohne Timeline sind nur Standbilder moeglich "
+                             "(--still / --preview-storyboard)")
 
-if __name__ == '__main__':
-    main()
+    available = [int(s["id"]) for s in timeline.get("shots", [])]
+    if args.list_shots:
+        for shot in timeline.get("shots", []):
+            print(f"Shot {shot['id']:>2} | Segment {shot['segment_id']} | "
+                  f"{shot['frames']:>4} Frames ({shot['frames'] / timeline['fps']:.2f} s) | "
+                  f"{shot.get('title', '')}")
+        return 0
+    selected = _parse_shots(args.shots, available)
+    if not HAS_BPY:
+        print(json.dumps({"error": "bpy fehlt", "shots": selected}, ensure_ascii=False))
+        return 2
+
+    builder = SceneBuilder(film, timeline, args.width, args.height, args.samples,
+                           args.device, force=args.force)
+    manifest_path = args.manifest or (args.out_dir / "render_manifest.json")
+    entries: list[dict] = []
+    if manifest_path.is_file():
+        try:
+            entries = json.loads(manifest_path.read_text(encoding="utf-8")).get("shots", [])
+        except ValueError:
+            entries = []
+    done = {int(entry["id"]) for entry in entries if Path(entry.get("path", "")).is_file()}
+    for shot_id in selected:
+        if shot_id in done and not args.force:
+            log(f"Shot {shot_id} existiert bereits - uebersprungen")
+            continue
+        suffix = ".png" if args.still else ".mp4"
+        output = args.out_dir / f"shot_{shot_id:03d}{suffix}"
+        entry = builder.build_shot(shot_id, output, still=args.still)
+        entries = [e for e in entries if int(e["id"]) != shot_id] + [entry]
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(
+            {"shots": sorted(entries, key=lambda e: int(e["id"])),
+             "fps": timeline.get("fps", 24), "width": args.width, "height": args.height,
+             "film": film.title}, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"Fertig: {len(selected)} Shot(s), Manifest: {manifest_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

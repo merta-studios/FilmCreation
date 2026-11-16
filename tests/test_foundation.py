@@ -1,97 +1,210 @@
+"""Grundlagen-Tests: Timeline, Untertitel, Guthaben, Validierung, RBXM."""
+from __future__ import annotations
+
 import importlib
-import json
+import shutil
+import sys
 from pathlib import Path
 from types import SimpleNamespace
+
 import pytest
 
-timeline = importlib.import_module('1_system.audio.timeline_sync')
-sound = importlib.import_module('1_system.audio.sound_design')
-validation = importlib.import_module('1_system.tools.validate_film')
-parser = importlib.import_module('1_system.roblox_api.rbxm_parser')
-pool = importlib.import_module('1_system.audio.elevenlabs_pool')
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+timeline = importlib.import_module("1_system.audio.timeline_sync")
+sound = importlib.import_module("1_system.audio.sound_design")
+validation = importlib.import_module("1_system.tools.validate_film")
+parser = importlib.import_module("1_system.roblox_api.rbxm_parser")
+pool = importlib.import_module("1_system.audio.elevenlabs_pool")
 
 
-def alignment(text):
-    return {'characters': list(text), 'character_start_times_seconds': [i / 10 for i in range(len(text))], 'character_end_times_seconds': [(i+1) / 10 for i in range(len(text))]}
+def alignment(text: str) -> dict:
+    return {
+        "characters": list(text),
+        "character_start_times_seconds": [index / 10 for index in range(len(text))],
+        "character_end_times_seconds": [(index + 1) / 10 for index in range(len(text))],
+    }
 
 
+# --------------------------------------------------------------------------- #
+# Timeline
+# --------------------------------------------------------------------------- #
 def test_timeline_and_word_cues():
-    t = timeline.build_timeline([{'segment_id': 1, 'alignment': alignment('Hallo Welt!'), 'duration': 1.1}, {'segment_id': 2, 'alignment': alignment('Ja.'), 'duration': .3}], fps=24, pause_after={1: .5})
-    assert [w['word'] for w in t['word_cues']] == ['Hallo', 'Welt!', 'Ja.']
-    assert timeline.find_word_by_text(t, 1, 'Welt') == 14
-    assert t['segments'][1]['start_seconds'] == 1.6
-    assert t['total_frames'] == 46
+    built = timeline.build_timeline(
+        [
+            {"segment_id": 1, "alignment": alignment("Hallo Welt!"), "duration": 1.1},
+            {"segment_id": 2, "alignment": alignment("Ja."), "duration": 0.3},
+        ],
+        fps=24, pause_after={1: 0.5},
+    )
+    assert [cue["word"] for cue in built["word_cues"]] == ["Hallo", "Welt!", "Ja."]
+    welt = next(cue for cue in built["word_cues"] if cue["word"] == "Welt!")
+    assert timeline.find_word_frame(built, 1, "Welt") == welt["start_frame"]
+    assert welt["start_seconds"] == pytest.approx(0.6, abs=0.05)
+    assert built["segments"][1]["start_seconds"] == pytest.approx(1.6)
+    assert built["total_frames"] == 46
+    assert built["words" if False else "total_words"] == 3
+    stats = timeline.timeline_stats(built)
+    assert stats["resolution"] == "1080x1920" and stats["segments"] == 2
 
 
 def test_timeline_rejects_bad_alignment():
-    a = alignment('ab'); a['character_end_times_seconds'].pop()
+    broken = alignment("ab")
+    broken["character_end_times_seconds"].pop()
     with pytest.raises(ValueError):
-        timeline.build_timeline([{'segment_id': 1, 'alignment': a}])
+        timeline.build_timeline([{"segment_id": 1, "alignment": broken}])
+
+
+def test_timeline_rejects_non_vertical_format():
+    with pytest.raises(ValueError):
+        timeline.build_timeline([{"segment_id": 1, "alignment": alignment("Hi")}],
+                                width=1920, height=1080)
 
 
 def test_subtitles_and_sfx(tmp_path):
-    t = timeline.build_timeline([{'segment_id': 1, 'alignment': alignment('Hallo Welt!'), 'duration': 1.1}])
-    path = sound.build_tiktok_subtitles(t, tmp_path / 'x.ass')
-    content = path.read_text()
-    assert 'PlayResX: 1080' in content and 'PlayResY: 1920' in content
-    assert 'Hallo' in content and '\\c&H00FFFF&' in content
-    assert sound.generate_procedural_sfx('rain', .1, tmp_path / 'rain.wav').read_bytes()[:4] == b'RIFF'
+    built = timeline.build_timeline(
+        [{"segment_id": 1, "alignment": alignment("Hallo Welt!"), "duration": 1.1}])
+    path = sound.build_tiktok_subtitles(built, tmp_path / "x.ass")
+    content = path.read_text(encoding="utf-8")
+    assert "PlayResX: 1080" in content and "PlayResY: 1920" in content
+    assert "Hallo" in content and "Welt!" in content
+    # Karaoke-Hervorhebung: aktuelles Wort in Gold
+    assert "\\c&H00D7FF&" in content
+    rain = sound.generate_procedural_sfx("rain", 0.1, tmp_path / "rain.wav")
+    assert rain.read_bytes()[:4] == b"RIFF"
 
 
-def test_credit_report_fails_closed_and_no_double_count():
-    a = pool.KeyStatus('abcd****yz', True, characters_remaining=100)
-    b = pool.KeyStatus('efgh****yz', True, characters_remaining=100)
-    report = pool.CreditReport([a, b], estimated_chars=150)
-    assert report.total_remaining == 100 and not report.ok
-    assert 'abcd****yz' in report.summary()
-    assert not pool.CreditReport([a, pool.KeyStatus('bad****', False)], estimated_chars=10).ok
+# --------------------------------------------------------------------------- #
+# Guthaben
+# --------------------------------------------------------------------------- #
+def test_credit_report_sums_accounts_and_dedupes():
+    same_account = [
+        pool.KeyStatus("abcd****yz", True, account="A", characters_remaining=100),
+        pool.KeyStatus("efgh****yz", True, account="A", characters_remaining=100),
+    ]
+    assert pool.CreditReport(same_account, estimated_chars=150).total_remaining == 100
+    two_accounts = [
+        pool.KeyStatus("abcd****yz", True, account="A", characters_remaining=100),
+        pool.KeyStatus("ijkl****yz", True, account="B", characters_remaining=100),
+    ]
+    report = pool.CreditReport(two_accounts, estimated_chars=150)
+    assert report.total_remaining == 200 and report.ok
+    assert "abcd****yz" in report.summary()
+    dead = pool.CreditReport([pool.KeyStatus("bad****", False, error="401")], 10)
+    assert not dead.ok and "HARTER STOPP" in dead.summary()
+    too_little = pool.CreditReport(two_accounts, estimated_chars=10_000)
+    assert not too_little.ok
 
 
 def test_keys_dedupe(monkeypatch):
-    monkeypatch.setenv('ELEVENLABS_API_KEYS', 'a,b\na')
-    monkeypatch.setenv('ELEVENLABS_API_KEY_1', 'b')
-    monkeypatch.setenv('ELEVENLABS_API_KEY_2', 'c')
-    assert pool.collect_api_keys() == ['a', 'b', 'c']
+    monkeypatch.setenv("ELEVENLABS_API_KEYS", "a,b\na")
+    monkeypatch.setenv("ELEVENLABS_API_KEY_1", "b")
+    monkeypatch.setenv("ELEVENLABS_API_KEY_2", "c")
+    assert pool.collect_api_keys() == ["a", "b", "c"]
 
 
-def test_demo_validate_and_static_camera(tmp_path):
-    import shutil
-    root = Path(__file__).resolve().parents[1]
-    shutil.copytree(root / '2_aktueller_film', tmp_path / 'film')
-    f = tmp_path / 'film'
-    assert not validation.validate_film(f)
-    p = f / 'shots.py'; p.write_text(p.read_text().replace('crane_reveal', 'static'))
-    assert any('statisch' in s for s in validation.validate_film(f))
+class FakeSession:
+    """Ersetzt requests.Session und protokolliert die verwendeten Keys."""
+
+    def __init__(self, post_plan=None, subscription=None):
+        self.used_keys: list[str] = []
+        self.post_plan = post_plan or {}
+        self.subscription = subscription or {
+            "character_count": 4, "character_limit": 50,
+            "next_character_count_reset_unix": 1735689600, "tier": "free"}
+
+    def get(self, url, headers=None, timeout=None):
+        return SimpleNamespace(status_code=200, json=lambda: dict(self.subscription), text="")
+
+    def post(self, url, params=None, headers=None, json=None, timeout=None):
+        key = (headers or {}).get("xi-api-key", "")
+        self.used_keys.append(key)
+        plan = self.post_plan.get(key)
+        if plan is None:
+            return SimpleNamespace(status_code=200, json=lambda: {}, text="")
+        status, payload = plan
+        return SimpleNamespace(status_code=status,
+                               json=lambda: payload, text=str(payload)[:200])
 
 
-def test_rbxmx_and_reject_binary(tmp_path):
-    p = tmp_path / 'x.rbxmx'
-    p.write_text('''<roblox><Item class="Part"><Properties><string name="Name">Wall</string><Vector3 name="Size"><X>1</X><Y>2</Y><Z>3</Z></Vector3></Properties><Item class="Attachment"><Properties><string name="Name">HatAttachment</string></Properties></Item></Item></roblox>''')
-    model = parser.RbxmParser().parse_file(p)
-    assert model.parts[0].size == (1,2,3) and model.parts[0].attachments[0]['name'] == 'HatAttachment'
-    p.write_bytes(b'<roblox!\x89\xff')
-    with pytest.raises(NotImplementedError): parser.RbxmParser().parse_file(p)
+def test_subscription_masks_secrets_and_formats_reset():
+    secret = "sk_test_very_secret_value"
+    client = pool.ElevenLabsPool([secret], session=FakeSession())
+    report = client.check_credits(20)
+    assert report.ok and report.total_remaining == 46
+    assert "2025-01-01" in report.summary()
+    assert secret not in report.summary()
+    assert "****" in report.summary()
 
 
-def test_subscription_masks_secrets_and_formats_reset(monkeypatch):
-    secret = 'sk_test_very_secret_value'
-    monkeypatch.setattr(pool.requests, 'get', lambda *a, **k: SimpleNamespace(status_code=200, json=lambda: {'character_count': 4, 'character_limit': 50, 'next_character_count_reset_unix': 1735689600}))
-    result = pool.ElevenLabsPool([secret]).check_credits(20)
-    assert result.ok and result.total_remaining == 46
-    assert '2025-01-01' in result.summary()
-    assert secret not in result.summary()
-
-
-def test_tts_rotates_on_limit(monkeypatch, tmp_path):
+def test_tts_rotates_on_limit(tmp_path):
     import base64
-    requests = []
-    def post(url, headers, json, timeout):
-        requests.append(headers['xi-api-key'])
-        if headers['xi-api-key'] == 'first':
-            return SimpleNamespace(status_code=429)
-        return SimpleNamespace(status_code=200, json=lambda: {'audio_base64': base64.b64encode(b'audio').decode(), 'alignment': alignment('Hi')})
-    monkeypatch.setattr(pool.requests, 'post', post)
-    monkeypatch.setattr(pool.time, 'sleep', lambda _: None)
-    result = pool.ElevenLabsPool(['first', 'second']).synthesize_segment('Hi', 'voice', tmp_path / 'x.mp3')
-    assert requests == ['first', 'second'] and (tmp_path / 'x.mp3').read_bytes() == b'audio'
-    assert result.duration_seconds == .2
+
+    audio = b"a" * 4000
+    payload = {"audio_base64": base64.b64encode(audio).decode(),
+               "alignment": alignment("Hi")}
+    session = FakeSession(post_plan={"first": (429, {"detail": {"status": "rate_limit_exceeded",
+                                                               "message": "slow down"}}),
+                                     "second": (200, payload)})
+    client = pool.ElevenLabsPool(["first", "second"], session=session)
+    result = client.synthesize_segment("Hi", "voice", tmp_path / "x.mp3")
+    assert session.used_keys == ["first", "second"]
+    assert (tmp_path / "x.mp3").read_bytes() == audio
+    assert result.duration_seconds == pytest.approx(0.2)
+    assert result.characters == 2 and result.word_count == 1
+
+
+def test_tts_without_alignment_fails(tmp_path):
+    session = FakeSession(post_plan={"k": (200, {"audio_base64": "QUJD",
+                                                 "alignment": {}})})
+    client = pool.ElevenLabsPool(["k"], session=session)
+    with pytest.raises(pool.ElevenLabsError):
+        client.synthesize_segment("Hi", "voice", tmp_path / "x.mp3")
+
+
+# --------------------------------------------------------------------------- #
+# Film-Validierung
+# --------------------------------------------------------------------------- #
+def test_demo_validates_and_rejects_static_camera(tmp_path):
+    film_dir = tmp_path / "film"
+    shutil.copytree(ROOT / "2_aktueller_film", film_dir)
+    report = validation.validate_report(film_dir, allow_unconfigured=True)
+    assert report.errors == [], report.errors
+    assert report.info["Format"] == "1080x1920 @ 24 fps"
+    shots_file = film_dir / "shots.py"
+    shots_file.write_text(shots_file.read_text(encoding="utf-8").replace(
+        "crane_reveal", "static"), encoding="utf-8")
+    broken = validation.validate_report(film_dir, allow_unconfigured=True)
+    assert any("statisch" in error for error in broken.errors)
+
+
+def test_validation_needs_explicit_subtitles_flag(tmp_path):
+    film_dir = tmp_path / "film"
+    shutil.copytree(ROOT / "2_aktueller_film", film_dir)
+    config = film_dir / "film_config.yaml"
+    config.write_text(
+        "\n".join(line for line in config.read_text(encoding="utf-8").splitlines()
+                  if not line.strip().startswith("subtitles")),
+        encoding="utf-8")
+    report = validation.validate_report(film_dir, allow_unconfigured=True)
+    assert any("subtitles" in error for error in report.errors)
+
+
+# --------------------------------------------------------------------------- #
+# RBXM
+# --------------------------------------------------------------------------- #
+def test_rbxmx_and_reject_binary(tmp_path):
+    path = tmp_path / "x.rbxmx"
+    path.write_text(
+        '<roblox><Item class="Part"><Properties><string name="Name">Wall</string>'
+        '<Vector3 name="size"><X>1</X><Y>2</Y><Z>3</Z></Vector3></Properties>'
+        '<Item class="Attachment"><Properties><string name="Name">HatAttachment</string>'
+        "</Properties></Item></Item></roblox>",
+        encoding="utf-8")
+    model = parser.RbxmParser().parse_file(path)
+    assert tuple(model.parts[0].size) == (1, 2, 3)
+    assert model.parts[0].attachments[0]["name"] == "HatAttachment"
+    with pytest.raises(ValueError):
+        parser.RbxmParser().parse_bytes(b"<roblox!\x89\xff\r\n\x1a\n")

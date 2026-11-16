@@ -1,110 +1,397 @@
-"""Frame-aligned MP4 assembly for independently rendered shots and speech clips."""
+"""FFmpeg-Mastering: fertige 9:16-Filme aus Einzel-Shots + Master-Audio.
+
+Was hier passiert
+-----------------
+1. **Bild**: Die gerenderten Shots werden frame-exakt an ihre Position gelegt
+   (kein Zeitsprung, kein doppeltes Bild), auf 1080x1920 normalisiert und
+   zusammengefuegt. Jeder Shot wird auf seine exakte Framezahl getrimmt.
+2. **Ton**: Die in :mod:`1_system.audio.sound_design` gemasterte Spur wird
+   uebernommen (Sprache + Musik + SFX + Loudness-Normalisierung).
+3. **Untertitel**: Nur wenn ``subtitles: true`` - dann werden die wortgenauen
+   TikTok-Untertitel mit libass eingebrannt (inkl. Font-Ordner).
+4. **Beigaben**: Storyboard-PNG (jeder Shot einmal) und Render-Bericht.
+
+Die FFmpeg-Argumente werden in :func:`build_ffmpeg_command` als reine Daten
+zusammengebaut - so laesst sich der Schnitt ohne FFmpeg testen.
+"""
 from __future__ import annotations
+
 import argparse
 import importlib
 import json
 import math
 import shutil
 import subprocess
-import tempfile
+import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Sequence
+
 import yaml
 
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-def ffmpeg_binary():
-    binary = shutil.which('ffmpeg')
+font_manager = importlib.import_module("1_system.tools.font_manager")
+
+WIDTH, HEIGHT, FPS = 1080, 1920, 24
+
+
+class AssemblyError(RuntimeError):
+    """Fehler beim Mastering mit klarer Ursache."""
+
+
+# --------------------------------------------------------------------------- #
+# FFmpeg-Helfer
+# --------------------------------------------------------------------------- #
+def ffmpeg_binary() -> str:
+    binary = shutil.which("ffmpeg")
     if binary:
         return binary
     try:
-        return importlib.import_module('imageio_ffmpeg').get_ffmpeg_exe()
-    except ImportError as e:
-        raise RuntimeError('FFmpeg fehlt; installiere ffmpeg oder imageio-ffmpeg') from e
+        module = importlib.import_module("imageio_ffmpeg")
+        return module.get_ffmpeg_exe()
+    except ImportError as exc:  # pragma: no cover
+        raise AssemblyError("FFmpeg fehlt: apt-get install ffmpeg oder pip install imageio-ffmpeg") from exc
 
 
-def run(command):
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def run(command: Sequence[str], timeout: int = 3600) -> None:
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, timeout=timeout)
     if result.returncode:
-        raise RuntimeError('FFmpeg fehlgeschlagen: ' + result.stderr[-4000:])
+        raise AssemblyError("FFmpeg ist fehlgeschlagen:\n" + result.stderr[-4000:])
 
 
-def assemble(timeline, shots, audios, output, subtitles=False, width=1080, height=1920, storyboard=None):
-    """Shots correspond 1:1 to ordered timeline segments, including their pauses.
+def _escape_filter_path(path: Path) -> str:
+    """Pfad fuer 'ass=filename=...' maskieren (Doppelpunkte, Backslashes, Quotes)."""
+    text = str(Path(path).resolve())
+    text = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    return text
 
-    Segment start frames must begin at zero and increase. Audio is offset to
-    segment start; videos are trimmed at exact frame boundaries. No inference of
-    missing shots, speech or durations is attempted.
-    """
-    fps = int(timeline['fps'])
-    segments = timeline['segments']
-    total_frames = int(timeline['total_frames'])
-    if fps != 24 or not segments or len(shots) != len(segments) or len(audios) != len(segments):
-        raise ValueError('24 fps und je ein Video/Audio pro Segment erforderlich')
-    starts = [int(s['start_frame']) for s in segments] + [total_frames]
-    if starts[0] != 0 or any(a >= b for a,b in zip(starts,starts[1:])):
-        raise ValueError('Ungültige oder leere Segment-Framebereiche')
-    if not all(Path(p).is_file() for p in [*shots, *audios]):
-        raise FileNotFoundError('Mindestens ein Shot oder Sprachclip fehlt')
+
+# --------------------------------------------------------------------------- #
+# Manifest-Pruefung
+# --------------------------------------------------------------------------- #
+@dataclass
+class ShotClip:
+    shot_id: int
+    path: Path
+    start_frame: int
+    frames: int
+
+    @property
+    def end_frame(self) -> int:
+        return self.start_frame + self.frames
+
+
+def load_manifest(path: Path) -> dict:
+    path = Path(path)
+    if not path.is_file():
+        raise AssemblyError(f"Render-Manifest fehlt: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data.get("shots"), list) or not data["shots"]:
+        raise AssemblyError("Manifest enthaelt keine Shots")
+    return data
+
+
+def collect_clips(manifest: dict, timeline: dict, shots_dir: Optional[Path] = None) -> list[ShotClip]:
+    """Prueft, dass die Shots die Timeline lueckenlos und frame-exakt abdecken."""
+    fps = int(timeline.get("fps", FPS))
+    if fps != FPS:
+        raise AssemblyError(f"Timeline hat {fps} fps, erwartet {FPS}")
+    if int(timeline.get("width", WIDTH)) != WIDTH or int(timeline.get("height", HEIGHT)) != HEIGHT:
+        raise AssemblyError("Timeline ist nicht 1080x1920 (9:16)")
+    clips: list[ShotClip] = []
+    for entry in manifest["shots"]:
+        shot_id = int(entry["id"])
+        path = Path(entry["path"])
+        if not path.is_file() and shots_dir is not None:
+            candidate = Path(shots_dir) / path.name
+            if candidate.is_file():
+                path = candidate
+        if not path.is_file():
+            raise AssemblyError(f"Gerenderter Shot fehlt: {path}")
+        frames = int(entry.get("frames") or 0)
+        if frames <= 0:
+            raise AssemblyError(f"Shot {shot_id} hat keine Framezahl im Manifest")
+        clips.append(ShotClip(shot_id, path, int(entry.get("start_frame", 0)), frames))
+    clips.sort(key=lambda c: c.start_frame)
+    expected = 0
+    for clip in clips:
+        if clip.start_frame != expected:
+            raise AssemblyError(
+                f"Shots sind nicht lueckenlos: Shot {clip.shot_id} beginnt bei "
+                f"Frame {clip.start_frame}, erwartet {expected}")
+        expected = clip.end_frame
+    total = int(timeline["total_frames"])
+    if expected != total:
+        raise AssemblyError(f"Shots decken {expected} Frames ab, die Timeline hat {total}. "
+                            "Bitte fehlende Shots rendern.")
+    return clips
+
+
+# --------------------------------------------------------------------------- #
+# Filtergraph (pur, testbar)
+# --------------------------------------------------------------------------- #
+def build_ffmpeg_command(clips: list[ShotClip], audio: Path, output: Path,
+                         subtitles: Optional[Path] = None,
+                         width: int = WIDTH, height: int = HEIGHT, fps: int = FPS,
+                         total_frames: Optional[int] = None,
+                         crf: int = 18, preset: str = "medium",
+                         fonts_dir: Optional[Path] = None,
+                         audio_bitrate: str = "192k") -> list[str]:
+    """Baut die FFmpeg-Argumente (ohne Binary und ohne Ausfuehrung)."""
+    if not clips:
+        raise AssemblyError("Keine Shots zum Zusammensetzen")
+    total_frames = total_frames or sum(clip.frames for clip in clips)
+    args: list[str] = ["-y", "-hide_banner", "-loglevel", "error"]
+    for clip in clips:
+        args += ["-i", str(Path(clip.path).resolve())]
+    args += ["-i", str(Path(audio).resolve())]
+    audio_index = len(clips)
+
+    filters: list[str] = []
+    for index, clip in enumerate(clips):
+        filters.append(
+            f"[{index}:v]fps={fps},"
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+            f"tpad=stop_mode=clone:stop_duration={clip.frames / fps:.6f},"
+            f"trim=end_frame={clip.frames},setpts=PTS-STARTPTS[v{index}]")
+    filters.append("".join(f"[v{index}]" for index in range(len(clips))) +
+                   f"concat=n={len(clips)}:v=1:a=0[vcat]")
+    video_label = "[vcat]"
+    if subtitles is not None:
+        fonts = f":fontsdir='{_escape_filter_path(Path(fonts_dir))}'" if fonts_dir else ""
+        filters.append(f"[vcat]ass=filename='{_escape_filter_path(Path(subtitles))}'{fonts}[vsub]")
+        video_label = "[vsub]"
+    filters.append(f"{video_label}format=yuv420p[vout]")
+    filters.append(f"[{audio_index}:a]aresample=48000,"
+                   f"atrim=duration={total_frames / fps:.6f},asetpts=PTS-STARTPTS[aout]")
+
+    args += ["-filter_complex", ";".join(filters),
+             "-map", "[vout]", "-map", "[aout]",
+             "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
+             "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
+             "-r", str(fps), "-g", str(fps * 2), "-fps_mode", "cfr",
+             "-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000", "-ac", "2",
+             "-t", f"{total_frames / fps:.6f}",
+             "-movflags", "+faststart", str(Path(output).resolve())]
+    return args
+
+
+# --------------------------------------------------------------------------- #
+# Mastering
+# --------------------------------------------------------------------------- #
+def assemble(timeline: dict, manifest: dict, audio: Path, output: Path,
+             subtitles: bool = False, config: Optional[dict] = None,
+             subtitles_path: Optional[Path] = None,
+             storyboard: Optional[Path] = None, report: Optional[Path] = None,
+             shots_dir: Optional[Path] = None, work_dir: Optional[Path] = None,
+             crf: int = 18, preset: str = "medium") -> dict:
+    """Schneidet den finalen 9:16-Film und schreibt Storyboard + Bericht."""
     if not isinstance(subtitles, bool):
-        raise ValueError('subtitles muss Boolean sein')
+        raise AssemblyError("'subtitles' muss true oder false sein")
+    config = config or {}
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    work_dir = Path(work_dir or output.parent / "work")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    audio = Path(audio)
+    if not audio.is_file():
+        raise AssemblyError(f"Master-Audio fehlt: {audio}")
+
+    clips = collect_clips(manifest, timeline, shots_dir)
+    total_frames = int(timeline["total_frames"])
+    ass_file: Optional[Path] = None
+    if subtitles:
+        if subtitles_path and Path(subtitles_path).is_file():
+            ass_file = Path(subtitles_path)
+        else:
+            sound_design = importlib.import_module("1_system.audio.sound_design")
+            style_choice = str((config.get("untertitel_stil") or {}).get("font", "inter"))
+            resolved_font = font_manager.resolve(style_choice, allow_download=False)
+            font_name = resolved_font.stem.split("[")[0].replace("_", " ") if resolved_font else "DejaVu Sans"
+            style = sound_design.SubtitleStyle(font=font_name)
+            ass_file = sound_design.build_tiktok_subtitles(
+                timeline, work_dir / "captions.ass", style=style,
+                width=WIDTH, height=HEIGHT)
+
+    args = build_ffmpeg_command(clips, audio, output, ass_file,
+                                total_frames=total_frames, crf=crf, preset=preset,
+                                fonts_dir=font_manager.fonts_dir() if ass_file else None)
+    run([ffmpeg_binary(), *args])
+    if not output.is_file() or output.stat().st_size < 10_000:
+        raise AssemblyError("Der finale Film wurde nicht (oder fehlerhaft) geschrieben")
+
+    result = {
+        "output": str(output),
+        "size_mb": round(output.stat().st_size / 1_048_576, 2),
+        "duration": round(total_frames / FPS, 2),
+        "frames": total_frames,
+        "shots": len(clips),
+        "subtitles": bool(subtitles),
+        "subtitle_file": str(ass_file) if ass_file else None,
+        "title": timeline.get("film_title", "Film"),
+    }
+    if storyboard:
+        result["storyboard"] = str(make_storyboard(output, timeline, clips, Path(storyboard)))
+    if report:
+        result["report"] = str(write_report(result, timeline, manifest, Path(report),
+                                            config))
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# Storyboard + Bericht
+# --------------------------------------------------------------------------- #
+def _label_font(size: int = 22):
+    try:
+        from PIL import ImageFont
+    except ImportError:  # pragma: no cover
+        return None
+    for style in ("inter", "roboto"):
+        path = font_manager.resolve(style, allow_download=False)
+        if path:
+            try:
+                return ImageFont.truetype(str(path), size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def make_storyboard(video: Path, timeline: dict, clips: list[ShotClip],
+                    output: Path, thumb=(270, 480), columns: Optional[int] = None) -> Path:
+    """Erzeugt ein Uebersichtsbild: pro Shot ein Frame, mit Nummer und Zeit."""
+    from PIL import Image, ImageDraw, ImageOps
+
     ffmpeg = ffmpeg_binary()
-    command = [ffmpeg, '-y', '-hide_banner', '-loglevel', 'error']
-    for path in [*shots, *audios]:
-        command += ['-i', str(Path(path).resolve())]
-    filters = []
-    for i in range(len(segments)):
-        frames = starts[i+1] - starts[i]
-        filters.append(f'[{i}:v]fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,tpad=stop_mode=clone:stop_duration={frames/fps:.6f},trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]')
-    filters.append(''.join(f'[v{i}]' for i in range(len(segments))) + f'concat=n={len(segments)}:v=1:a=0[v]')
-    for i, start in enumerate(starts[:-1]):
-        delay = round(start * 1000 / fps)
-        filters.append(f'[{len(segments)+i}:a]aresample=48000,atrim=duration={(starts[i+1]-start)/fps:.6f},asetpts=PTS-STARTPTS,adelay={delay}:all=1[a{i}]')
-    filters.append(''.join(f'[a{i}]' for i in range(len(segments))) + f'amix=inputs={len(segments)}:duration=longest:normalize=0,apad,atrim=duration={total_frames/fps:.6f},loudnorm=I=-14:TP=-1.5:LRA=11[a]')
-    with tempfile.TemporaryDirectory(prefix='film_') as tmp:
-        tmp = Path(tmp)
-        final_video = '[v]'
-        if subtitles:
-            path = tmp / 'captions.ass'
-            importlib.import_module('1_system.audio.sound_design').build_tiktok_subtitles(timeline, path)
-            # Use a controlled temporary path and escape filter metacharacters.
-            escaped = str(path).replace('\\','\\\\').replace(':','\\:').replace("'", "\\'")
-            filters.append(f"[v]ass='{escaped}'[sub]")
-            final_video = '[sub]'
-        command += ['-filter_complex', ';'.join(filters), '-map', final_video, '-map', '[a]',
-                    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium',
-                    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', str(output)]
-        run(command)
-        if storyboard:
-            from PIL import Image, ImageOps, ImageDraw
-            images = []
-            for i, (shot, start, end) in enumerate(zip(shots, starts, starts[1:])):
-                img = tmp / f'{i}.png'
-                run([ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-ss', str((end-start)/fps/2), '-i', str(shot), '-frames:v', '1', str(img)])
-                images.append(Image.open(img).convert('RGB'))
-            thumb = (270, 480)
-            board = Image.new('RGB', (thumb[0]*len(images), thumb[1]), '#151515')
-            for i, image in enumerate(images):
-                board.paste(ImageOps.fit(image, thumb), (i*thumb[0],0))
-            Path(storyboard).parent.mkdir(parents=True, exist_ok=True)
-            board.save(storyboard)
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    frames: list[Image.Image] = []
+    labels: list[str] = []
+    with __import__("tempfile").TemporaryDirectory(prefix="storyboard_") as tmp:
+        for index, clip in enumerate(clips):
+            mid = (clip.start_frame + clip.frames / 2) / FPS
+            frame_path = Path(tmp) / f"f{index}.png"
+            run([ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                 "-ss", f"{mid:.3f}", "-i", str(video), "-frames:v", "1", str(frame_path)])
+            if not frame_path.is_file():
+                continue
+            image = Image.open(frame_path).convert("RGB")
+            frames.append(ImageOps.fit(image, thumb, method=Image.LANCZOS))
+            label = f"#{clip.shot_id}  {clip.start_frame / FPS:.1f}s"
+            labels.append(label)
+    if not frames:
+        raise AssemblyError("Storyboard konnte keine Frames aus dem Film extrahieren")
+    columns = columns or min(5, len(frames))
+    rows = math.ceil(len(frames) / columns)
+    padding, header = 8, 34
+    board = Image.new("RGB", (columns * (thumb[0] + padding) + padding,
+                              rows * (thumb[1] + padding + header) + padding), "#111214")
+    draw = ImageDraw.Draw(board)
+    font = _label_font(20)
+    for index, image in enumerate(frames):
+        x = padding + (index % columns) * (thumb[0] + padding)
+        y = padding + (index // columns) * (thumb[1] + padding + header)
+        board.paste(image, (x, y + header))
+        draw.text((x + 4, y + 6), labels[index], fill="#F2F3F3", font=font)
+    board.save(output, optimize=True)
     return output
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--timeline', type=Path, required=True)
-    p.add_argument('--shots-dir', type=Path, required=True)
-    p.add_argument('--audio-dir', type=Path, required=True)
-    p.add_argument('--config', type=Path, default=Path('2_aktueller_film/film_config.yaml'))
-    p.add_argument('--output', type=Path, default=Path('render_output/final_film.mp4'))
-    p.add_argument('--storyboard', type=Path, default=Path('render_output/storyboard.png'))
-    args = p.parse_args()
-    tl = json.loads(args.timeline.read_text(encoding='utf8'))
-    cfg = yaml.safe_load(args.config.read_text(encoding='utf8'))
-    shots = [args.shots_dir / f'shot_{s["segment_id"]:03d}.mp4' for s in tl['segments']]
-    audio = [args.audio_dir / f'seg_{s["segment_id"]:03d}.mp3' for s in tl['segments']]
-    assemble(tl, shots, audio, args.output, subtitles=cfg['subtitles'], storyboard=args.storyboard)
+def write_report(result: dict, timeline: dict, manifest: dict, path: Path,
+                 config: Optional[dict] = None) -> Path:
+    config = config or {}
+    stats_lines = [
+        f"# Render-Bericht: {result.get('title', 'Film')}",
+        "",
+        "## Ergebnis",
+        "",
+        f"* Datei: `{Path(result['output']).name}` ({result['size_mb']} MB)",
+        f"* Format: **9:16, 1080x1920, 24 fps**, {result['duration']} s "
+        f"({result['frames']} Frames)",
+        f"* Shots: {result['shots']}",
+        f"* Untertitel: **{'eingebrannt' if result['subtitles'] else 'aus'}**",
+        f"* Musik: {(config.get('musik') or {}).get('mood', 'melancholisch')}",
+        "",
+        "## Shots",
+        "",
+        "| Shot | Segment | Start | Frames | Dauer | Licht |",
+        "|---|---|---|---|---|---|",
+    ]
+    by_id = {int(entry["id"]): entry for entry in manifest.get("shots", [])}
+    for shot in timeline.get("shots", []):
+        entry = by_id.get(int(shot["id"]), {})
+        stats_lines.append(
+            f"| {shot['id']} | {shot['segment_id']} | {shot['start_seconds']:.2f} s | "
+            f"{shot['frames']} | {shot['frames'] / FPS:.2f} s | "
+            f"{entry.get('lighting', '-')} |")
+    stats_lines += ["", "## Kamera", "", "| Shot | Bewegung | Brennweite | Weg (Studs) |", "|---|---|---|---|"]
+    for shot in timeline.get("shots", []):
+        entry = by_id.get(int(shot["id"]), {})
+        camera = entry.get("camera") or {}
+        stats_lines.append(f"| {shot['id']} | {camera.get('move', '-')} | "
+                           f"{camera.get('focal_mm', '-')} mm | {camera.get('travel_studs', '-')} |")
+    stats_lines += ["", "_Automatisch erzeugt von 1_system/tools/assemble_final.py_", ""]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(stats_lines), encoding="utf-8")
+    return path
 
-if __name__ == '__main__':
-    main()
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+def read_config(path: Optional[Path]) -> dict:
+    if path and Path(path).is_file():
+        return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return {}
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Finalen 9:16-Film schneiden")
+    parser.add_argument("--timeline", type=Path, default=Path("render_session/timeline_resolved.json"))
+    parser.add_argument("--manifest", type=Path, default=Path("render_output/shots/render_manifest.json"))
+    parser.add_argument("--audio", type=Path, default=Path("render_session/master_audio.wav"))
+    parser.add_argument("--config", type=Path, default=Path("2_aktueller_film/film_config.yaml"))
+    parser.add_argument("--output", type=Path, default=Path("render_output/final_film.mp4"))
+    parser.add_argument("--storyboard", type=Path, default=Path("render_output/storyboard.png"))
+    parser.add_argument("--report", type=Path, default=Path("render_output/film_info.md"))
+    parser.add_argument("--subtitles", choices=("auto", "true", "false"), default="auto",
+                        help="auto = Wert aus film_config.yaml")
+    parser.add_argument("--subtitles-file", type=Path, default=None)
+    parser.add_argument("--shots-dir", type=Path, default=None)
+    parser.add_argument("--crf", type=int, default=18)
+    parser.add_argument("--preset", default="medium")
+    args = parser.parse_args(argv)
+
+    config = read_config(args.config)
+    timeline = json.loads(args.timeline.read_text(encoding="utf-8"))
+    manifest = load_manifest(args.manifest)
+    if args.subtitles == "auto":
+        value = config.get("subtitles")
+        if not isinstance(value, bool):
+            raise SystemExit("film_config.yaml: 'subtitles' muss true oder false sein")
+        subtitles = value
+    else:
+        subtitles = args.subtitles == "true"
+
+    result = assemble(timeline, manifest, args.audio, args.output, subtitles=subtitles,
+                      config=config, subtitles_path=args.subtitles_file,
+                      storyboard=args.storyboard, report=args.report,
+                      shots_dir=args.shots_dir, crf=args.crf, preset=args.preset)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    summary_path = __import__("os").environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as stream:
+            stream.write("## Fertiger Film\n\n")
+            stream.write(f"* `{Path(result['output']).name}` - {result['duration']} s, "
+                         f"9:16 1080x1920, {result['size_mb']} MB\n")
+            stream.write(f"* Untertitel: {'an' if result['subtitles'] else 'aus'}\n")
+            stream.write(f"* Shots: {result['shots']}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

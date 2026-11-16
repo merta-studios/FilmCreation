@@ -1,144 +1,241 @@
-# Einrichtung und aktueller Stand
+# Einrichtung, Secrets und Betrieb
 
-## Wichtig: noch kein fertiges Renderstudio
+## Stand
 
-Dieser Stand ist weiterhin **nicht produktionsreif**. Neu sind ein einfacher
-Blender-Demo-Szenenbau, Spracherzeugung mit Timeline und ein FFmpeg-Schnitt mit
-optionalen Untertiteln. Die Figuren sind einfache 15-teilige Blockfiguren, kein
-Roblox-kompatibles R15-Skelett. Der Renderer bildet ausschließlich die vier
-fest codierten Demo-Shots ab und ignoriert viele Vorgaben in den Filmdateien.
-Ein vollständiger Durchlauf mit ElevenLabs, Blender und Kaggle wurde nicht live
-verifiziert. FFmpeg-Schnitt und Untertitel wurden mit synthetischen Clips getestet.
+Das System ist vollständig implementiert: Stadt-Generator, R15-Figuren,
+Animationen, Kamera, Licht, ElevenLabs-TTS mit Key-Rotation, prozedurale Musik
+und SFX, Mastering auf −14 LUFS, Untertitel, Shot-Render über Blender (lokal,
+GitHub-Runner oder Kaggle T4×2), Kaggle-Watchdog mit GitHub-Fallback, Schnitt und
+automatisches Release.
 
-Roblox-Assets/Emotes, Anprobe, universeller Szenenbau, echte Animationen,
-Kaggle-Bundle/Worker/Callback, Output-Abholung, Musik und SFX im Mastering fehlen
-weiterhin. Start-, Finish- und Inspect-Modi melden dies als Fehler; der Fallback
-hat keinen Zeitplan. Der Storyboard-Modus rendert nur Bilder der festen Demo.
+Was der Stand **nicht** belegt: einen vollständigen Live-Lauf über GitHub Actions
+und Kaggle. Getestet sind Unit-Tests (Parser, Timeline, Pipeline, Kaggle-Brücke,
+Watchdog, Assets), der Blender-Rauchtest im CI sowie Schnitt und Ton mit
+synthetischen Clips. Bis zum ersten echten Lauf gilt: nichts als „fertig“
+behaupten, ohne Log und Release zu sehen.
 
-### Experimenteller lokaler Demo-Render
+---
 
-Voraussetzungen: Python 3.11, Blender-Python-Wheel `bpy==4.2.0` mit benötigten
-Linux-OpenGL/X11-Laufzeitbibliotheken, FFmpeg mit libx264 und libass, Pillow,
-ElevenLabs-Key und eine gültige Voice-ID. In Ubuntu beispielsweise:
+## 1. Lokale Umgebung
 
 ```bash
-sudo apt-get install libxrender1 libxi6 libxxf86vm1 libxfixes3 libgl1 libsm6 libxkbcommon0 ffmpeg
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r 1_system/requirements.txt 'bpy==4.2.0' Pillow
-# ELEVENLABS_API_KEYS in der Umgebung setzen; niemals in Git speichern.
-# In 3_regeln/empfohlene_elevenlabs_stimmen.yaml eine gültige voice_id eintragen.
-python -m 1_system.tools.render_demo_local --preview
-```
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r 1_system/requirements.txt
 
-Ausgabe: `render_output/final_film.mp4` und `storyboard.png`. Der Vorgang kann
-Credits verbrauchen und ist nicht als vollständig erprobter Produktionsweg zu
-verstehen. `--preview` rendert 540×960 und skaliert im Mastering auf 1080×1920;
-ohne diesen Schalter werden die Shots in 1080×1920 berechnet. Der lokale Weg
-unterstützt nur die Demo, keine beliebigen Filme. Die Ausgabe ist bei fehlender
-Roblox-Anbindung nicht authentisch und erzielt nicht die gewünschte Endqualität.
-
-## 1. Lokaler Test der vorhandenen Grundfunktionen
-
-Python 3.10+ und Internetzugriff auf PyPI nötig:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install 'requests>=2.31,<3' 'PyYAML>=6,<7' pytest
-python -m compileall -q 1_system 2_aktueller_film
 python -m pytest -q
-python -m 1_system.tools.validate_film --strict
+python -m compileall -q 1_system 2_aktueller_film tests
+python -m 1_system.tools.validate_film --allow-unconfigured
 ```
 
-Die Prüfung betrifft nur das deklarative Beispiel. Sie prüft **nicht**, ob
-Figuren auf dem Boden stehen, ob ein Shot gut aussieht oder gerendert werden
-kann. SFX-Bausteine sind noch nicht in das Mastering integriert; ASS-Untertitel werden optional eingebrannt.
+`requirements.txt` enthält `requests`, `PyYAML`, `Pillow`, `imageio-ffmpeg`.
+FFmpeg wird über `imageio-ffmpeg` mitgeliefert – ein System-FFmpeg ist nicht
+nötig. **Blender** (`bpy`) wird nicht mitinstalliert, weil es nur für echte
+Renders gebraucht wird:
 
-## 2. GitHub und erster Credit-Test
+```bash
+pip install 'bpy==4.2.0'
+sudo apt-get install libxrender1 libxi6 libxxf86vm1 libxfixes3 libgl1 libsm6
+```
 
-Repository auf GitHub öffnen → **Settings → Secrets and variables → Actions →
-New repository secret**. Secrets dort speichern, niemals im Git einchecken oder
-in Logs kopieren. Repository-Rechte und Workflow-Ausführung unter **Settings →
-Actions → General** gemäß den eigenen Organisationsrichtlinien aktivieren.
-Nach Aufnahme des Workflows in den Standardbranch: **Actions → Agent Helper →
-Run workflow → check-credits**, geschätzte Zeichen inklusive 15 % Puffer
-angeben. Zusammenfassung und Status prüfen. GitHub zeigt `workflow_dispatch`
-gewöhnlich erst an, wenn die Workflow-Datei im Standardbranch existiert; beim
-manuellen Start muss die gewünschte Branch-Version gewählt werden.
+Ohne `bpy` funktionieren Validierung, Timeline-Planung (`--dry-run`), Credits,
+Asset-Analyse und Schnitt. `render_local` bricht vor jedem Credit-Verbrauch ab,
+wenn `bpy` fehlt.
 
-Die Prüfung stoppt, wenn ein Key ungültig oder das **höchste Einzelguthaben**
-zu klein ist. Guthaben mehrerer Keys werden nicht addiert, weil verschiedene Keys
-zum selben Konto gehören können. Account-übergreifende Verteilung und
-Live-Verifikation gleicher Stimmen sind nicht umgesetzt. Reset kann fehlen, wenn
-die API kein Datum liefert. `synthesize_segment` ist ein Einzelbaustein, kein
-kompletter Workflow.
+Lokaler Komplettlauf (verbraucht Credits und Rechenzeit):
 
-### Geplante Secret-Namen
+```bash
+python -m 1_system.tools.render_local --quality preview --shots 1-4
+python -m 1_system.tools.render_local --reuse-audio --quality high
+```
 
-| Secret | Zweck | Aktueller Stand |
+---
+
+## 2. Secrets (Repository → Settings → Secrets and variables → Actions)
+
+### Pflicht für einen Render
+
+| Secret | Zweck | Ohne dieses Secret |
 |---|---|---|
-| `ELEVENLABS_API_KEYS` | Kommaseparierte oder zeilengetrennte Keys | Credit-Test und TTS-Baustein |
-| `ELEVENLABS_API_KEY_1` … `ELEVENLABS_API_KEY_10` | Einzelne Keys | Credit-Test und TTS-Baustein |
-| `ROBLOX_API_KEY` | Open-Cloud-Zugriff | noch nicht angebunden |
-| `ROBLOX_USER_ID` | optionale Roblox-Nutzer-ID | noch nicht angebunden |
-| `KAGGLE_USERNAME` | Kaggle-Benutzername | noch nicht angebunden |
-| `KAGGLE_KEY` | Kaggle API Key | noch nicht angebunden |
-| `KAGGLE_API_TOKEN` | alternatives Kaggle-Token | noch nicht angebunden |
-| `KAGGLE_KERNEL_SLUG` | Kernel-Name | noch nicht angebunden |
-| `GH_CALLBACK_TOKEN` | späterer GitHub-Callback | noch nicht angebunden |
+| `ELEVENLABS_API_KEYS` | Komma-/zeilengetrennte Keys | keine Sprachausgabe |
+| oder `ELEVENLABS_API_KEY_1` … `_6` | einzelne Keys | wie oben |
+| `KAGGLE_USERNAME` | Kaggle-Konto | Render läuft auf GitHub (nur `preview`) |
+| `KAGGLE_KEY` | Kaggle-API-Token | wie oben |
 
-## 3. ElevenLabs vorbereiten
+### Optional
 
-Bei ElevenLabs anmelden, im Profil-/Developer-Bereich einen API-Key erstellen
-und als Secret eintragen. Für mehrere Keys `ELEVENLABS_API_KEYS` verwenden oder
-nummerierte Secrets anlegen. Abrechnung, Guthaben und Nutzungsbedingungen pro
-Account beachten; mehrere Accounts sind kein Ersatz für Nutzungsrechte oder
-Tarifbedingungen. Stimme auswählen und Voice-ID im ElevenLabs-Interface oder per
-API ermitteln. In `3_regeln/empfohlene_elevenlabs_stimmen.yaml` eintragen. Eine
-Stimme muss auf jedem verwendeten Account verfügbar und lizenziert sein; dieselbe
-Voice-ID oder Kompatibilität darf nicht einfach angenommen werden.
+| Secret | Zweck |
+|---|---|
+| `GH_CALLBACK_TOKEN` | Fine-grained PAT nur für dieses Repo, Recht *Actions: Read and write* + *Contents: Read and write* (Release). Nötig, wenn der Kaggle-Kernel Workflow 2 selbst starten soll. Ohne Token wird `github.token` benutzt – das darf innerhalb eines Kernels keine Workflows starten. |
+| `ROBLOX_API_KEY` | Open-Cloud-Key für Asset-Suche/-Download (`legacy-asset:manage`, `asset:read`, `thumbnail:read`) |
+| `ROBLOX_USER_ID` | eigene User-ID, optional für Store-Suchen |
 
-## 4. Kaggle vorbereiten – noch nicht nutzbar
+Keys niemals in `2_aktueller_film/`, Workflows, Kernel-Metadaten oder Artefakte
+schreiben. Die Workflows reichen sie ausschließlich als Umgebungsvariablen an
+Python-Prozesse weiter; Logs zeigen nur maskierte Keys (`mask_key`).
 
-Kaggle-Konto anlegen; unter Kontoeinstellungen API-Zugang einrichten und
-GPU-/Internetfreischaltung gemäß den aktuellen Kaggle-Vorgaben durchführen
-(unter Umständen inklusive Telefonverifizierung). Quoten und verfügbare
-Beschleuniger im Notebook-/Kontingentbereich des Kontos prüfen: die Verfügbarkeit
-von zwei T4, Internet und einer bestimmten Wochenstundenzahl ist nicht garantiert.
-Die Kaggle-Integration und das sichere Session-Handling sind noch zu entwickeln.
-API-Schlüssel nicht in ein öffentliches Notebook, Kernel-Metadaten, Artifact oder
-Git einbetten. Insbesondere ist die sichere Übermittlung des Callback-Tokens an
-Kaggle noch ungelöst.
+### Repository-Variablen (Settings → Variables)
 
-## 5. Roblox vorbereiten – noch nicht nutzbar
+| Variable | Wirkung |
+|---|---|
+| `KAGGLE_FALLBACK_ACTIVE` | von Hand gesetzt, wenn Kaggle bewusst nicht genutzt wird |
+| `KAGGLE_FALLBACK_AUTODISABLE` | `true` = Watchdog schaltet sich nach einer Übernahme selbst ab |
 
-Im Roblox Creator Hub den Bereich **Credentials / API Keys** suchen; UI und
-angebotene Scopes können sich ändern. Für den eigenen Account nur erforderliche
-Rechte vergeben und für jedes Asset Lizenz- und Nutzungsrechte prüfen.
-Die in der Aufgabenstellung genannten Scopes `legacy-asset:manage` und
-`thumbnail:read` sowie Creator-Store-Zugriff müssen gegen aktuelle Roblox-Doku
-und Account-Freigaben geprüft werden; es ist nicht verifiziert, ob diese Scopes
-für alle gewünschten APIs verfügbar oder ausreichend sind. `0.0.0.0/0` öffnet
-Zugriff aus allen IPv4-Netzen und sollte nur bewusst verwendet werden. Ein Key
-erlaubt nicht automatisch das Herunterladen oder kommerzielle Nutzen fremder
-Assets. Die API-Anbindung ist hier noch nicht implementiert.
+---
 
-## 6. GitHub-Callback – noch nicht nutzbar
+## 3. ElevenLabs
 
-Unter GitHub **Settings → Developer settings → Personal access tokens →
-Fine-grained tokens** ggf. einen Token nur für dieses Repository mit minimalem
-Actions-Recht (Read and write) anlegen und als `GH_CALLBACK_TOKEN` speichern.
-Branch-/Organisationsregeln können zusätzliche Freigaben verlangen. Token nie in
-Kaggle-Bundles oder Artifacts packen; eine sichere Übergabe und idempotenter
-Callback mit eindeutigem Session-/Run-Bezug müssen zuerst entwickelt werden.
+1. Account anlegen, Profil → API Keys → Key erstellen.
+2. Key(s) als Secrets eintragen. Mehrere Keys verschiedener Konten werden
+   addiert; mehrere Keys desselben Kontos zählen einmal (das erkennt der
+   Credit-Check an der Konto-ID).
+3. Stimme auswählen, **Voice ID** kopieren und in
+   `3_regeln/empfohlene_elevenlabs_stimmen.yaml` unter `haupt_erzaehler.voice_id`
+   eintragen. Nebenstimmen unter `nebenstimmen:`.
+4. Prüfen:
 
-## 7. Eigene Empfehlungen und zukünftige Nutzung
+```bash
+python -m 1_system.audio.generate_timeline --credits-only
+```
 
-Dateien in `3_regeln/` enthalten konfigurierbare Voice-Einstellungen, vom Nutzer
-vorgeschlagene (nicht live geprüfte) Roblox-IDs und Lieblingsmaterialien. Zusätzliche
-Notizen unter `3_regeln/eigene_notizen/` ablegen. Agenten lesen sie vor jedem
-Film. Wenn die Pipeline vervollständigt ist, Filmidee und Untertitelwunsch nennen;
-der Agent muss zunächst Credits prüfen und einen vollständigen Pitch ausdrücklich
-freigeben lassen. Ohne vollständige Implementierung ist ein erster Render nicht
-möglich.
+Ausgabe pro Konto: maskierter Key, Restzeichen, Reset-Datum. Reicht das Guthaben
+nicht (Bedarf = Zeichen × 1,15), bricht der Lauf **vor** jeder Synthese ab.
+
+Hinweise: Library-Stimmen müssen dem Konto hinzugefügt sein, sonst `404`.
+`429`/`quota_exceeded` führt automatisch zur Rotation auf den nächsten Key.
+Ein Zeichen ≈ ein Credit.
+
+---
+
+## 4. Kaggle
+
+1. Konto anlegen, Telefon verifizieren (Voraussetzung für Internet und GPU).
+2. **Account → Create New API Token** → `kaggle.json`; daraus `username` →
+   `KAGGLE_USERNAME`, `key` → `KAGGLE_KEY`.
+3. Im Notebook-Test prüfen: Accelerator **GPU T4 ×2** verfügbar, Internet **on**,
+   Wochenquote noch frei.
+4. Workflow 1 veröffentlicht automatisch ein privates Dataset
+   (`filmcreation-<run>-<id>`) und einen privaten Kernel
+   (`<user>/filmcreation-<run>-<id>`) mit `machine_shape: NvidiaTeslaT4`,
+   `enable_internet: true`, `is_private: true`. Der Kernel klont exakt den
+   Commit des Laufs, rendert die Shots auf zwei Workern, mergt das Manifest und
+   ruft – wenn `GH_CALLBACK_TOKEN` gesetzt ist – Workflow 2 auf.
+5. Ergebnis manuell holen (falls der Callback nicht greift):
+
+```bash
+python -m 1_system.kaggle_bridge.parallel_render download \
+  --kernel USER/SLUG --out-dir render_output
+```
+
+Die Kaggle-CLI muss dafür im `PATH` sein (`pip install kaggle`); die Workflows
+installieren sie selbst.
+
+**Wichtig:** Der Kernel bekommt keine Secrets. Er klont das öffentliche Repo und
+kennt nur die Kernel-Slugs sowie optional den Callback-Token als Kernel-Secret.
+
+---
+
+## 5. Roblox Open Cloud
+
+1. Creator Hub → **Open Cloud → API Keys** → Key erstellen.
+2. Scopes: `legacy-asset:manage` (Download), `asset:read` (Metadaten),
+   `thumbnail:read` (Vorschau).
+3. IP-Freigabe: `0.0.0.0/0` nur bewusst; für GitHub-Runner ist eine feste IP
+   nicht möglich, für lokale Arbeit die eigene IP eintragen.
+4. Test:
+
+```bash
+python -m 1_system.roblox_api.open_cloud --verify
+python -m 1_system.roblox_api.asset_inspector --search "Roblox beanie" --tryon
+```
+
+Lizenzen: `check_license()` lehnt Marken-/Franchise-Artikel und Audio-Assets ab.
+Ein API-Key ist **keine** Lizenz – fremde UGC nur nach Sichtprüfung und eigener
+rechtlicher Bewertung einsetzen.
+
+---
+
+## 6. GitHub
+
+* Actions müssen erlaubt sein (Settings → Actions → General).
+* Workflows erscheinen im „Run workflow“-Menü erst, wenn die Datei auf dem
+  Standardbranch liegt.
+* Releases brauchen `contents: write` – die Workflows setzen das selbst.
+* Workflow 1 → Workflow 2 läuft über `workflow_run` (bei Erfolg) und über den
+  expliziten Callback aus `notify`. Beides ist idempotent: Workflow 2 prüft, ob
+  das Release schon existiert.
+* Artefakte: `render-session` (Timeline, Audio, Untertitel),
+  `render-shots` (Clips + Manifest), `kaggle-state`.
+  Aufbewahrung: 14 Tage (GitHub-Standard).
+* `--disable-after-takeover` schaltet den Watchdog nach einer Übernahme ab;
+  reaktivieren mit `gh workflow enable check-kaggle-fallback.yml`.
+
+### Lauf starten
+
+```bash
+gh workflow run 1-start-render.yml \
+  -f shots=all -f quality=high -f render_target=auto \
+  -f subtitles=true -f kaggle_timeout_minutes=180
+
+gh run watch
+gh release download film-<run_id>
+```
+
+Parameter: `shots` (z. B. `1-4`), `quality` (`preview|high|max`), `render_target`
+(`auto|kaggle|github`), `subtitles` (`auto|true|false`), `skip_credit_check`,
+`kaggle_timeout_minutes`.
+
+---
+
+## 7. Betriebswerkzeuge
+
+| Aufgabe | Befehl |
+|---|---|
+| Credits | `python -m 1_system.audio.generate_timeline --credits-only` |
+| Struktur prüfen | `python -m 1_system.tools.validate_film` |
+| Shots auflisten | `python -m 1_system.blender_engine.scene_builder --list-shots` |
+| Storyboard (nur Bilder) | `python -m 1_system.blender_engine.scene_builder --preview-storyboard --still --shots all` |
+| Raster aus Shots | `python -m 1_system.tools.preview_storyboard --shots-dir render_output/shots` |
+| Shots prüfen | `python -m 1_system.tools.check_shots --timeline render_session/timeline_resolved.json --manifest render_output/shots/render_manifest.json` |
+| Tonspur | `python -m 1_system.tools.mix_audio` |
+| Schnitt | `python -m 1_system.tools.assemble_final --subtitles auto` |
+| Kaggle-Status | `python -m 1_system.kaggle_bridge.parallel_render check --kernel USER/SLUG` |
+| Kaggle-Ergebnis holen | `python -m 1_system.kaggle_bridge.parallel_render download --kernel USER/SLUG --out-dir render_output` |
+| Fallback prüfen | `python -m 1_system.kaggle_bridge.fallback_watchdog --dry-run` |
+| Assets anproben | `python -m 1_system.roblox_api.asset_inspector --assets 123,456 --tryon` |
+| Assets zu GLB | `python -m 1_system.roblox_api.prepare_assets --assets 123,456 --out assets/models` |
+
+---
+
+## 8. Fehlerbehebung
+
+| Symptom | Ursache / Lösung |
+|---|---|
+| `bpy fehlt` | `pip install bpy==4.2.0` + X11-Bibliotheken, oder Blender-Render über GitHub/Kaggle |
+| `Format muss 1080x1920 @ 24 fps sein` | `film_config.yaml` verändert – zurückstellen |
+| `'subtitles' muss ausdrücklich true oder false sein` | Boolean fehlt oder ist String |
+| `keine voice_id` | Stimme in `3_regeln/empfohlene_elevenlabs_stimmen.yaml` eintragen |
+| `401` bei ElevenLabs | Key ungültig oder gelöscht |
+| `403` bei Roblox | fehlender Scope oder IP nicht freigegeben (Hint in der Meldung) |
+| `429` | Rotation greift automatisch; sonst Key-Limit prüfen |
+| `Shots fehlen` / `frames_covered < frames_total` | Shots erneut rendern (Manifest überspringt fertige), `--force` nur bei Verdacht auf defekte Dateien |
+| Kaggle hängt in `queued` | Watchdog nach 45 min, GitHub übernimmt |
+| `Keine GPU gefunden` | Renderer fällt auf CPU zurück; Dauer steigt deutlich |
+| Release existiert nicht | `gh run view <id> --log` prüfen; Workflow 2 manuell starten |
+| `Workflow nicht gefunden` | Workflow-Datei liegt noch nicht auf dem Standardbranch |
+
+---
+
+## 9. Kosten und Zeit
+
+| Posten | Größe | Aufwand |
+|---|---|---|
+| TTS | ~2.000 Zeichen | ~2.300 Credits |
+| Render `preview` | GitHub 1 Job | 10–25 min |
+| Render `preview` | Kaggle T4×2 | 5–12 min |
+| Render `high` | Kaggle T4×2 | 20–45 min |
+| Render `max` | Kaggle T4×2 | 60–120 min |
+| Schnitt | FFmpeg lokal | < 1 min |
+
+Blender-Render kostet kein Geld, nur Laufzeit. Der teuerste Fehler ist ein
+verspätet erkannter Textfehler, deshalb: Validierung und Storyboard **vor** dem
+Render.

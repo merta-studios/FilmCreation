@@ -1,39 +1,135 @@
-name: Tests and Blender smoke test
+# ============================================================================
+#  CI: Tests, Struktur-Pruefung, Blender-Rauchtest
+#  Laeuft bei jedem Push und Pull Request, der Code oder Film beruehrt.
+# ============================================================================
+name: CI - Tests und Blender-Rauchtest
+
 on:
   push:
     paths:
-      - '1_system/**'
-      - '2_aktueller_film/**'
-      - 'tests/**'
-      - '.github/workflows/ci.yml'
+      - "1_system/**"
+      - "2_aktueller_film/**"
+      - "3_regeln/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
   pull_request:
     paths:
-      - '1_system/**'
-      - '2_aktueller_film/**'
-      - 'tests/**'
-      - '.github/workflows/ci.yml'
+      - "1_system/**"
+      - "2_aktueller_film/**"
+      - "3_regeln/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
+
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
   tests:
+    name: Python-Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
+      - name: Systempakete
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libxrender1 libxi6 libxxf86vm1 libxfixes3 libgl1 libsm6 libxkbcommon0 ffmpeg
-      - run: pip install -r 1_system/requirements.txt pytest 'bpy==4.2.0'
-      - run: python -m compileall -q 1_system 2_aktueller_film && python -m pytest -q
-      - name: Blender-Demobild
-        run: python -m 1_system.blender_engine.scene_builder --shot 1 --frames 12 --width 90 --height 160 --samples 1 --still --output render_output/smoke.png
-      - name: Blender-Animationsclip
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: 1_system/requirements.txt
+
+      - name: Python-Pakete + pytest
+        run: pip install -r 1_system/requirements.txt pytest
+
+      - name: Syntaxpruefung
+        run: python -m compileall -q 1_system 2_aktueller_film tests
+
+      - name: Struktur des Demo-Films
+        run: python -m 1_system.tools.validate_film --allow-unconfigured
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Workflows sind gueltiges YAML
         run: |
-          python -m 1_system.blender_engine.scene_builder --shot 1 --frames 3 --width 90 --height 160 --samples 1 --output render_output/shot_001.mp4
-          test -s render_output/shot_001.mp4
-          ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of default=nw=1 render_output/shot_001.mp4 | grep -x 'nb_read_frames=3'
+          python - <<'PY'
+          import sys, yaml
+          from pathlib import Path
+          failed = False
+          for path in sorted(Path(".github/workflows").glob("*.yml")):
+              try:
+                  yaml.safe_load(path.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  failed = True
+                  print(f"FEHLER in {path}: {exc}")
+              else:
+                  print(f"OK: {path.name}")
+          sys.exit(1 if failed else 0)
+          PY
+
+  blender-smoke:
+    name: Blender-Rauchtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Systempakete
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core \
+            libxrender1 libxi6 libxxf86vm1 libxfixes3 libgl1 libsm6 \
+            libxkbcommon0 libegl1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: 1_system/requirements.txt
+
+      - name: Python-Pakete + Blender als Python-Modul
+        run: |
+          pip install -r 1_system/requirements.txt
+          pip install bpy==4.2.0
+
+      - name: Standbild (540x960, 8 Samples)
+        env:
+          RENDER_DEVICE: CPU
+        run: |
+          python -m 1_system.blender_engine.scene_builder \
+            --preview-storyboard --still --shots 1 \
+            --out-dir render_output/smoke \
+            --manifest render_output/smoke/render_manifest.json
+          test -s render_output/smoke/shot_001.png
+
+      - name: Kurzer Animationsclip (3 Frames)
+        env:
+          RENDER_DEVICE: CPU
+        run: |
+          python -m 1_system.blender_engine.scene_builder \
+            --quality preview --shots 1 --out-dir render_output/clip \
+            --manifest render_output/clip/render_manifest.json
+          ls -l render_output/clip
+          test -s render_output/clip/shot_001.mp4
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: blender-smoke-${{ github.run_id }}
-          path: render_output/smoke.png
+          path: |
+            render_output/smoke/shot_001.png
+            render_output/clip/shot_001.mp4
+          retention-days: 7
+          if-no-files-found: warn

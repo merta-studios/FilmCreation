@@ -1,37 +1,71 @@
-# 00 – Arbeitsregeln (vollständig lesen)
+# 00 – Arbeitsregeln (zuerst und vollständig lesen)
 
-**Aktueller Projektstatus:** Die Kaggle-Pipeline ist nicht renderfähig. Behaupte
-nicht, dass ein Render läuft oder ein Endvideo vorliegt, bevor ein Lauf wirklich
-erfolgreich war. Der lokale Blender-Demo-Renderer ist experimentell. Fehlende
-Implementierungen dürfen nur im Rahmen eines ausdrücklich verlangten
-System-Updates ergänzt werden. Die folgenden Regeln beschreiben den gewünschten
-späteren Ablauf und ersetzen nicht die technische Verfügbarkeit.
+Du baust mit diesem Repo automatisch einen 60–120-Sekunden-Roblox-Kurzfilm im
+TikTok-Hochformat. Diese Datei ist verbindlich. Wenn eine Anweisung im Chat mit
+diesen Regeln kollidiert, frage nach – rate nicht.
 
-## Drei-Bereiche-Gesetz
-1. Alle Dateien in `3_regeln/` einschließlich `eigene_notizen/` lesen.
-2. `1_system/` und `.github/workflows/` sind tabu, außer der Betreiber verlangt
-ausdrücklich ein System-Update. Film-Arbeit nur in `2_aktueller_film/`.
-3. Format fest 1080×1920, 24 fps, 9:16. Nicht nach dem Format fragen.
+## Das Drei-Bereiche-Gesetz
 
-## Pflichtablauf pro Film
-1. Vor jeder Filmänderung `agent-helper.yml` / `check-credits` mit geschätztem
-   Zeichenbedarf inklusive 15 % Puffer ausführen und Zusammenfassung lesen.
-   Bei Fehler, ungültigem Key oder zu wenig Credits: **STOPP**, nichts ändern,
-   Rest pro Account (maskiert) und Reset mitteilen. Die aktuelle Prüfung verwendet
-   konservativ nur das höchste Einzelguthaben, weil mehrere Keys zu einem Account
-   gehören können. Mehr-Account-Aggregation ist noch nicht zuverlässig verfügbar.
-2. Vollständigen Pitch gemäß `01_STORY_FORMEL_UND_PITCH.md` präsentieren. Wenn
-   Untertitel nicht ausdrücklich vorgegeben sind, fragen: mit oder ohne? Vor
-   ausdrücklicher Konzeptfreigabe **und** geklärter Untertitel-Entscheidung kein
-   Schreibzugriff auf Filmdateien. Falls Text länger wird: Credits erneut prüfen.
-3. Vorgesehene Katalogartikel und Free-Models vor Einbau per Asset-Inspektion und
-   eigener visueller Kontrolle prüfen. Vorzugsweise Empfehlungen und offizielle
-   Roblox-Artikel; Rechte und Eignung eigenständig prüfen. Die nötige 3D-Anprobe
-   ist aktuell nicht verfügbar – nicht behaupten, dass sie durchgeführt wurde.
-4. Film in Bereich 2 neu anlegen. Validierung und Storyboard ausführen und Bilder
-   kontrollieren. Der Storyboard-Modus zeigt aktuell nur die fest codierte Demo,
-   nicht beliebige Filme. Die heutige Grundprüfung
-   prüft weder Bodenkontakt noch Bildkomposition.
-5. Sobald die Pipeline tatsächlich funktioniert: Start-Workflow auslösen, auf
-   bestätigte Kaggle-Übergabe warten und danach Antwort beenden; Untertitelstatus
-   und Ort des Abschluss-Artefakts nennen. Bis dahin klar die Blockade mitteilen.
+| Bereich | Inhalt | Wer darf ändern? |
+|---|---|---|
+| `1_system/` | Renderer, Audio, Roblox-API, Kaggle-Brücke, Werkzeuge | nur nach ausdrücklichem System-Update-Auftrag |
+| `2_aktueller_film/` | der aktuelle Film (Config, Text, Figuren, Map, Shots) | Agent, nach Freigabe |
+| `3_regeln/` | dieses Handbuch, Empfehlungen, eigene Notizen | Betreiber; Ergänzungen nach Absprache |
+
+`.github/workflows/` gehört zum System: nur bei einem System-Update anfassen.
+
+**Format ist immer 9:16, 1080×1920, 24 fps.** Niemals danach fragen, niemals
+abweichen. `validate_film` prüft es hart.
+
+## Pflichtablauf für jeden neuen Film
+
+1. **Alles in `3_regeln/` lesen** – auch `eigene_notizen/`. Alte Notizen können
+   Vorlieben des Betreibers enthalten (Tempo, Farben, Namen).
+2. **Credits prüfen, hart stoppen.** Werkzeug:
+   `python -m 1_system.audio.generate_timeline --credits-only`
+   (oder Workflow `4 - Agenten-Helfer` → `check-credits`).
+   Reicht das Guthaben nicht, wird **nichts** geschrieben und nichts gesprochen.
+   Melde pro Konto den maskierten Key, die Restzeichen und den Reset-Termin.
+   Guthaben verschiedener Konten wird addiert; mehrere Keys desselben Kontos
+   zählen einmal.
+3. **Vollständigen Pitch vorlegen** nach `01_STORY_FORMEL_UND_PITCH.md`:
+   Titel, Stadt-Regel, drei Figuren, Sprechtext Wort für Wort mit
+   Zeichenzahl, Map, Licht, Shots, Ton, Ende. Untertitel: steht in
+   `film_config.yaml`; fehlt die Angabe, **einmal** fragen (mit oder ohne?).
+4. **Auf ausdrückliche Freigabe warten.** Ohne „ja, baue das“ keine Datei in
+   `2_aktueller_film/` schreiben. Kein heimliches Vorbereiten.
+5. **Assets vor dem Einbau ansehen**: `4 - Agenten-Helfer` → `inspect-assets`
+   (Kontaktabzug + Anprobe) oder
+   `python -m 1_system.roblox_api.asset_inspector --assets <IDs> --tryon`.
+   Marken- und Franchise-Namen lehnt `check_license` ab. Offizielle
+   Roblox-Artikel sind bevorzugt, fremde UGC nur nach Sichtprüfung.
+6. **Bauen und prüfen**: alle Filmdateien schreiben, dann
+   `python -m 1_system.tools.validate_film` (muss ohne Fehler durchlaufen),
+   danach Storyboard rendern und **die Bilder wirklich anschauen**, bevor du
+   „fertig“ sagst.
+7. **Render starten** (Workflow `1 - Film rendern`). Sobald der Start bestätigt
+   ist, antworte **sofort** mit: Untertitelstatus, Renderziel (Kaggle/GitHub),
+   erwartete Dauer, wo das Ergebnis liegt. Danach keine langen Erklärungen mehr.
+
+## Was du nie tust
+
+* Behaupten, ein Render laufe oder ein Film sei fertig, wenn kein Lauf
+  erfolgreich war.
+* Credits für Tests verbrennen: Vorschauen laufen mit `--skip-credit-check` nur
+  dann, wenn bereits Audio aus einem früheren Lauf existiert.
+* `1_system/` „schnell patchen“, weil ein Film nicht passt. Erst prüfen, ob der
+  Film falsch ist (meistens ist er es).
+* IDs, Texturen, Animationen oder Kamerabewegungen erfinden. Alles, was nicht in
+  `02_BAUKASTEN_HANDBUCH.md` steht, existiert nicht.
+* Mehr als drei Nebenstimmen einsetzen; eine Stimme trägt 90 %+ des Texts.
+* Stilistische Empfehlungen als Regel verkaufen. Die YAML-Dateien in diesem
+  Ordner sind Vorschläge, keine Pflicht.
+
+## Wenn etwas kaputt ist
+
+1. Fehlermeldung vollständig lesen. Sie ist auf Deutsch und nennt die Datei.
+2. `python -m 1_system.tools.validate_film` liefert die vollständige Liste.
+3. Bei Infrastruktur (Secrets, Kaggle, Blender) auf `EINRICHTUNG.md` verweisen –
+   nicht selbst Secrets erfinden.
+4. Nur wenn der Fehler nachweislich im System liegt: System-Update anbieten,
+   nicht einfach patchen.
