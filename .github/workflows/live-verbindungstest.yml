@@ -37,6 +37,12 @@ jobs:
           for status in report.keys:
               if not status.ok:
                   print(f'::notice::ElevenLabs Fehlerkategorie: {status.error}')
+          for entry in pool.keys:
+              try:
+                  r = requests.get('https://api.elevenlabs.io/v1/voices', headers={'xi-api-key': mod._secret(entry)}, timeout=20)
+                  print(f'::notice::ElevenLabs Stimmenliste: HTTP {r.status_code}, Stimmen={len(r.json().get("voices", [])) if r.status_code == 200 else 0}')
+              except Exception:
+                  print('::notice::ElevenLabs Stimmenliste nicht erreichbar')
           if not report.keys or not any(s.ok for s in report.keys):
               for entry in pool.keys:
                   try:
@@ -101,7 +107,8 @@ jobs:
                   print(f'::notice::Roblox Asset-Delivery Rohantwort: HTTP {response.status_code}, JSON={"json" in response.headers.get("Content-Type", "").lower()}')
                   if 'json' in response.headers.get('Content-Type', '').lower():
                       data = response.json()
-                      print(f'::notice::Roblox Asset-Delivery JSON: location={bool(data.get("location"))}, errors={bool(data.get("errors"))}')
+                      codes = [e.get('code') for e in data.get('errors', []) if isinstance(e, dict) and isinstance(e.get('code'), int)]
+                      print(f'::notice::Roblox Asset-Delivery JSON: location={bool(data.get("location"))}, Fehlercodes={codes}')
               except module.RobloxApiError as exc:
                   print(f'::notice::Roblox Asset-Delivery HTTP {exc.status}')
               report = client.verify()

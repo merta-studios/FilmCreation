@@ -187,3 +187,14 @@ def test_start_without_username_reports_error(tmp_path, monkeypatch):
     (session / "timeline_resolved.json").write_text('{"fps": 24}', encoding="utf-8")
     status = parallel.start(session, out_dir=tmp_path / "out", dry_run=True)
     assert not status["ok"] and "KAGGLE_USERNAME" in status["error"]
+
+
+def test_api_token_is_passed_as_token_not_written_as_legacy_key(tmp_path, monkeypatch):
+    monkeypatch.setenv('KAGGLE_USERNAME', 'example')
+    monkeypatch.setenv('KAGGLE_KEY', 'KGAT_fake_token')
+    client = client_mod.KaggleClient(config_dir=tmp_path)
+    assert client.ensure_credentials() is None
+    assert not (tmp_path / 'kaggle.json').exists()
+    env = client._env()
+    assert env['KAGGLE_API_TOKEN'] == 'KGAT_fake_token'
+    assert 'KAGGLE_USERNAME' not in env and 'KAGGLE_KEY' not in env

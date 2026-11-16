@@ -208,3 +208,12 @@ def test_rbxmx_and_reject_binary(tmp_path):
     assert model.parts[0].attachments[0]["name"] == "HatAttachment"
     with pytest.raises(ValueError):
         parser.RbxmParser().parse_bytes(b"<roblox!\x89\xff\r\n\x1a\n")
+
+
+def test_elevenlabs_401_reports_missing_permissions():
+    class RestrictedSession:
+        def get(self, *args, **kwargs):
+            return SimpleNamespace(status_code=401, json=lambda: {'detail': {'status': 'missing_permissions'}})
+    client = pool.ElevenLabsPool(keys=['fake-key'], session=RestrictedSession())
+    result = client.check_key('fake-key')
+    assert not result.ok and 'Berechtigung' in result.error
