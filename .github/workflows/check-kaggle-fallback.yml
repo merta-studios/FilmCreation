@@ -1,14 +1,90 @@
-name: Check Kaggle Fallback
-# Kein Zeitplan bis Sessions und idempotentes Dispatching implementiert sind.
+# ============================================================================
+#  Waechter: laeuft alle 15 Minuten und greift nur ein, wenn wirklich etwas
+#  haengt. Ohne offenen Render-Lauf beendet er sich sofort (kein Verbrauch).
+#
+#  Was er tut
+#  * Warteschlange haengt (> 45 min)  -> Lauf abbrechen, auf GitHub rendern
+#  * Kaggle-Kernel tot / Lauf > 4 h   -> restliche Shots auf GitHub rendern
+#  * Kernel fertig, Schnitt fehlt     -> "2 - Film fertigstellen" starten
+#
+#  Abschalten
+#  * Repository-Variable KAGGLE_FALLBACK_ACTIVE=false  -> Waechter pausiert
+#  * Repository-Variable KAGGLE_FALLBACK_AUTODISABLE=true -> schaltet sich nach
+#    einem erfolgreichen Eingreifen selbst ab (gh workflow enable zum Zurueckholen)
+# ============================================================================
+name: 3 - Kaggle-Waechter
+
 on:
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      max_run_minutes:
+        description: "Ab wann gilt ein Lauf als haengend (Minuten)"
+        default: "240"
+      max_queue_minutes:
+        description: "Ab wann gilt die Warteschlange als haengend (Minuten)"
+        default: "45"
+      dry_run:
+        description: "Nur berichten, nichts ausloesen"
+        type: boolean
+        default: false
+
 permissions:
+  actions: write
   contents: read
+
+concurrency:
+  group: kaggle-watchdog
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
-  check:
+  watchdog:
+    name: Haengende Render-Laeufe pruefen
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
-      - run: |
-          echo '::error::Das Kaggle-Sicherheitsnetz ist noch nicht implementiert.'
-          exit 1
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: 1_system/requirements.txt
+
+      - name: Python-Pakete
+        run: pip install -r 1_system/requirements.txt
+
+      - name: Kaggle-CLI
+        run: pip install kaggle
+
+      - name: Waechter-Entscheidung
+        env:
+          GH_TOKEN: ${{ secrets.GH_CALLBACK_TOKEN || github.token }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          args=(--state-dir render_output
+                --max-run-minutes "${{ inputs.max_run_minutes || 240 }}"
+                --max-queue-minutes "${{ inputs.max_queue_minutes || 45 }}"
+                --json-out render_output/watchdog.json)
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ "${{ vars.KAGGLE_FALLBACK_AUTODISABLE }}" = "true" ] && \
+             [ "${{ github.event_name }}" = "schedule" ]; then
+            args+=(--disable-after-takeover)
+          fi
+          python -m 1_system.kaggle_bridge.fallback_watchdog "${args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: watchdog-report
+          path: render_output/watchdog.json
+          retention-days: 7
+          if-no-files-found: ignore

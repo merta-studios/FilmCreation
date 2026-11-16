@@ -1,17 +1,114 @@
+# ============================================================================
+#  SPRECHTEXT  -  Wort fuer Wort, mit Sprechern und Atempausen
+#  speaker: haupt_erzaehler  = die eine Erzaehlerstimme (spricht fast alles)
+#           neb_stimmen     = extrem seltene Einwuerfe (0-3 im ganzen Film)
+#  pause_after: Atempause in Sekunden NACH dem Segment (0-6)
+#  emotion: Feintuning der Stimme (ruhig, traurig, fluestern, hoffnungsvoll ...)
+# ============================================================================
+titel: "In dieser Stadt hat jeder nur 10.000 Schritte"
+
 segments:
   - id: 1
-    role: ERZAEHLER
-    text: "In dieser Stadt hat jeder nur zehntausend Schritte. Deshalb fährt jeder mit dem Auto zum Briefkasten. Über unseren Köpfen leuchten Zahlen, und mit jedem Schritt werden sie kleiner."
-    pause_after: 0.5
+    speaker: haupt_erzaehler
+    emotion: ruhig
+    text: >
+      In dieser Stadt hat jeder Mensch genau zehntausend Schritte.
+      Wenn der Zähler über deinem Kopf auf null steht, bleibst du stehen.
+      Für immer.
+    pause_after: 0.7
+
   - id: 2
-    role: ERZAEHLER
-    text: "Ich wohnte mit meiner Mutter in einem kleinen Haus am Hügel. Wir hatten kein Auto. Mama trug mich oft zur Schule, damit meine Zahl länger groß blieb. Eines Tages bemerkte ich, dass ihre Zahl fast auf null stand."
+    speaker: haupt_erzaehler
+    emotion: sachlich
+    text: >
+      Deshalb sparen alle. Sie fahren mit dem Rollstuhl zum Briefkasten,
+      mit dem Auto zur Bäckerei und sogar zum Kiosk an der Ecke.
     pause_after: 0.5
+
   - id: 3
-    role: ERZAEHLER
-    text: "In der Schule lachten die anderen über meine alten Schuhe. Nur meine Freundin Lina setzte sich neben mich. Als ich ihr von Mama erzählte, wurde sie ganz still. Am nächsten Morgen wartete sie mit einem alten Rollstuhl vor unserer Tür."
-    pause_after: 0.5
+    speaker: haupt_erzaehler
+    emotion: ruhig
+    text: >
+      Ich heiße Mika und bin elf. Meine Mutter hat noch dreihundert Schritte.
+      Ich habe neuntausend. Jeden Morgen laufe ich zu Fuß zur Schule,
+      damit unser Geld für ihre Medikamente reicht.
+    pause_after: 0.6
+
   - id: 4
-    role: ERZAEHLER
-    text: "Lina hatte ihn mit ihrem Großvater repariert. Von da an schob ich Mama zum Markt und Lina begleitete uns. Bald kamen die Nachbarn dazu und halfen einander den Hügel hinauf. Mamas Zahl blieb stehen. Und zum ersten Mal seit Langem ging in unserem kleinen Haus wieder Licht an."
+    speaker: haupt_erzaehler
+    emotion: traurig
+    text: >
+      In der Schule sagen sie, ich rieche nach Regen. Ich bin der Junge,
+      der laufen muss.
+    pause_after: 0.4
+
+  - id: 5
+    speaker: neb_lina
+    emotion: streng
+    text: >
+      Warum läufst du überhaupt? Bist du zu arm für einen Rollstuhl?
+    pause_after: 0.6
+
+  - id: 6
+    speaker: haupt_erzaehler
+    emotion: ruhig
+    text: >
+      Ich sage nichts. Ich zähle. Neuntausend werden achttausend,
+      dann sechstausend. Meine Mutter zählt am Fenster und lächelt mir zu.
+    pause_after: 0.6
+
+  - id: 7
+    speaker: neb_mutter
+    emotion: hoffnungsvoll
+    text: >
+      Ich möchte die Stadt noch einmal sehen. Nur einmal. Von der alten Uhr aus.
+    pause_after: 0.8
+
+  - id: 8
+    speaker: haupt_erzaehler
+    emotion: traurig
+    text: >
+      Dreihundert Schritte. Der Weg zur Uhr kostet vierhundert. Sie würde in
+      der Mitte stehen bleiben und nie wieder gehen.
+    pause_after: 0.7
+
+  - id: 9
+    speaker: haupt_erzaehler
+    emotion: hoffnungsvoll
+    text: >
+      Also hole ich den Rollstuhl. Ein Rollstuhl frisst keine Schritte.
+      Ich schiebe sie den ganzen Hügel hinauf, und die Stadt wird langsam golden.
     pause_after: 0.5
+
+  - id: 10
+    speaker: haupt_erzaehler
+    emotion: ruhig
+    text: >
+      Auf dem Weg lachen wir. Sie erzählt von früher, als die Häuser noch schief
+      waren und die Straßenbahnen flogen. Ich glaube ihr jedes Wort.
+    pause_after: 0.6
+
+  - id: 11
+    speaker: haupt_erzaehler
+    emotion: ruhig
+    text: >
+      Dann stehen wir unter der Uhr. Ihr Zähler blinkt. Dreihundert.
+      Und er bewegt sich nicht.
+    pause_after: 0.8
+
+  - id: 12
+    speaker: haupt_erzaehler
+    emotion: hoffnungsvoll
+    text: >
+      Sie steht auf. Zehn Schritte, mehr braucht sie nicht, nur zu mir.
+      In dieser Stadt zählt kein Schritt, den du für einen anderen Menschen gehst.
+    pause_after: 0.8
+
+  - id: 13
+    speaker: haupt_erzaehler
+    emotion: hoffnungsvoll
+    text: >
+      Ihr Zähler springt auf neuntausendneunhundert. Sie lacht und weint
+      gleichzeitig. Seitdem schiebe ich sie jeden Morgen zur Uhr.
+      Es kostet mich nichts. Nur den Weg zurück.
+    pause_after: 1.0

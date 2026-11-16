@@ -1,5 +1,80 @@
-# Vom Betreiber ergänzen; IDs allein begründen weder Rechte noch technische Nutzbarkeit.
+# Map-Assets, Texturen und Schriften
+#
+# Texturen sind prozedural (1_system/blender_engine/roblox_textures.py) und
+# kosten nichts - nutze sie, statt fremde Bilder zu laden. Die Namen sind
+# verbindlich; `validate_film` meldet unbekannte Keys.
+#
+# Grundsatz für 9:16: viel Vertikales (Fassaden, Türme, Kabel, Bäume) und
+# Details in drei Tiefenebenen (Vordergrund/Mittelgrund/Hintergrund).
+
+# Creator-Store-Modelle, die als Map-Objekt (type: creator_store) genutzt werden.
+# Format: {name: {asset_id: 123, pfad: "assets/models/123.glb", slot: "map"}}
 creator_store_assets: []
-classic_texturen: [studs_2006, classic_brick, classic_grass, classic_plastic]
-moderne_texturen: [asphalt, wood_planks, glass, concrete, neon]
-schriftarten: []
+
+classic_texturen:
+  # 2006er Blox-Look: sichtbar Raster, harte Kanten
+  - studs_2006
+  - classic_brick
+  - classic_grass
+  - classic_plastic
+  - classic_wood
+  - classic_slate
+  - classic_diamond_plate
+  - universal_2006
+  - inlet_2006
+
+moderne_texturen:
+  # heutiger Look: rau, nass, gefleckt
+  - asphalt
+  - wood_planks
+  - glass
+  - concrete
+  - neon
+  - brick
+  - cobblestone
+  - plaster
+  - metal
+  - corroded_metal
+  - roof_shingles
+  - marble
+  - limestone
+  - granite
+  - fabric
+  - carpet
+  - cardboard
+  - pavement
+  - ground
+  - grass
+  - leafy_grass
+  - mud
+  - sand
+  - snow
+  - water
+
+# Schriftarten für Schilder. Download über tools/font_manager (Google Fonts,
+# OFL/Apache-Lizenz), Fallback auf DejaVu, wenn offline.
+schriftarten:
+  plakat: bebas
+  strassenschild: oswald
+  erzaehlend: lora
+  handschrift: caveat
+  tafel: chalk
+  ladenfront: marker
+  zeitungsartikel: typewriter
+  zaehler: spacemono
+
+# Bewährte Bausteine einer Stadt (Typ -> Einsatz)
+bausteine:
+  strasse: {type: curved_road, params: {width: 6.0, sidewalk: 1.5}}
+  boden: {type: organic_ground, params: {size: [96, 96], hills: 1.15}}
+  haus: {type: block, hinweis: "3-5 Stück je Seite, 4-8 m hoch, leicht gedreht"}
+  dach: {type: gable_roof, hinweis: "macht Skyline interessant"}
+  laterne: {type: street_lamp, hinweis: "Lichtkegel + Vordergrund-Detail"}
+  baum: {type: tree, hinweis: "mindestens einer im Vordergrund"}
+  pfuetze: {type: puddle, hinweis: "Reflexion = Regen"}
+  muelltonne: {type: trash_can, hinweis: "Alltagsrealismus"}
+  briefkasten: {type: mailbox, hinweis: "roter Akzent im Bild"}
+  bank: {type: bench, hinweis: "Ort für leise Szenen"}
+  kabel: {type: hanging_cable, hinweis: "verbindet Fassaden, füllt oben"}
+  zaun: {type: fence, hinweis: "Vordergrund-Tiefe"}
+  schild: {type: sign, hinweis: "Text in 1080p mindestens 0.3 m hoch"}

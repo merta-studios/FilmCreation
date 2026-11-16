@@ -1,3 +1,7 @@
+# Laufzeit-Abhaengigkeiten des Systems (Python 3.11)
+# Blender selbst kommt als bpy==4.2.0 (GitHub/Kaggle) oder als lokale Installation.
 requests>=2.31,<3
 PyYAML>=6,<7
 Pillow>=10,<13
+# FFmpeg-Fallback, wenn kein System-FFmpeg vorhanden ist (Kaggle, Windows)
+imageio-ffmpeg>=0.5

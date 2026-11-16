@@ -1,11 +1,58 @@
-# Vorschläge aus der Aufgabenstellung, ohne Live-Verifikation oder Rechtefreigabe.
-# 3D-Anprobe vor Einsatz verpflichtend, gegenwärtig nicht implementiert.
+# Avatar-Artikel (Kleidung, Haare, Zubehör)
+#
+# Nicht jede ID aus dem Creator Store ist nutzbar:
+# * Lizenz: `check_license()` lehnt Marken-/Franchise-Artikel ab (Disney, Nike,
+#   Adidas, Pokemon, Gucci, Supreme, ...). Freigabe nur bei eigenem oder
+#   offiziellem Roblox-Urheber.
+# * Dateiformat: Blender kann `.rbxm`/`.rbxmx` nicht öffnen. Deshalb immer
+#   über `prepare_assets` nach GLB konvertieren.
+# * Sichtanprobe ist Pflicht, weil Thumbnails und Modell oft abweichen.
+#
+# Ablauf:
+#   python -m 1_system.roblox_api.asset_inspector --search "beanie roblox" --tryon
+#   python -m 1_system.roblox_api.prepare_assets --assets 123,456 --out assets/models
+#   -> Pfad in characters.py unter "accessories" eintragen
+#
+# Roblox-Store-Suchbegriffe, die verlässlich offizielle Artikel finden:
+#   "Roblox Beanie", "Roblox Backpack", "Roblox Hoodie", "Roblox Cap"
+#
+# Slot-Zuordnung (aus asset_inspector.SLOT_FOR_TYPE):
+#   Hat -> HatAttachment            Hair -> HairAttachment
+#   Face/Glasses -> FaceFrontAttachment   Shirt -> FrontAttachment
+#   Back/Backpack -> BackAttachment  Pants -> WaistCenterAttachment
+#   Neck/Tie -> NeckAttachment       LeftGrip/RightGrip -> *GripAttachment
+
 haare:
   pal_hair: 63690008
   brown_hair: 62234425
   blonde_spiked_hair: 376524487
   brown_charmer_hair: 376548738
+
+# Haare in Kurzform: der System-Fallback, wenn kein Store-Artikel passt.
+system_haar:
+  kurz: {style: block, farbe: "#2B1B10"}
+  lang: {style: block, farbe: "#5A3A22"}
+  locken: {style: ball, farbe: "#1B1209"}
+
 suche:
   bevorzugt: offizieller Roblox-Creator
   kategorien: [classic_faces, shirts, pants, backpacks, hats, glasses]
-  vermeiden: [fremde_ugc, layered_clothing]
+  vermeiden: [fremde_ugc, layered_clothing, marken_logos]
+
+# Praktische Kombinationen für Figuren dieses Genres.
+kombinationen:
+  kind_schule:
+    haare: brown_hair
+    shirt_farbe: "#0D69AC"
+    hose_farbe: "#635F62"
+    zubehoer: [rucksack, regenjacke]
+  erwachsene_alltag:
+    haare: brown_charmer_hair
+    shirt_farbe: "#8E5597"
+    hose_farbe: "#1B2A35"
+    zubehoer: [handtasche, schal]
+  aeltere_figur:
+    haare: pal_hair
+    shirt_farbe: "#4E7A3A"
+    hose_farbe: "#7C5C46"
+    zubehoer: [gehstock, brille]
