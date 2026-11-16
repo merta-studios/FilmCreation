@@ -1,0 +1,29 @@
+# Vorgeschlagene Roblox-IDs aus der Aufgabenstellung; Rechte und IDs nicht live geprüft.
+# Die Wiedergabe im System ist nicht implementiert.
+r15:
+  idle: [507766388, 507766666, 507766951]
+  walk: [507777826]
+  run: [507767714, 913376220]
+  jump: [507765000]
+  fall: [507767968]
+  climb: [507765644]
+  sit: [507768133, 2506281703]
+  swim: [507784897]
+  wave: [507770239]
+  point: [507770453]
+  cheer: [507770677]
+  laugh: [507770818]
+  dance: [507771019, 507776043, 507777268]
+katalog:
+  hello: 3576686446
+  shrug: 3576968026
+  tilt: 3360692915
+  salute: 3360689775
+  stadium: 3360686498
+  point2: 3576823880
+  applaud: 5915779043
+  sad: 4849502101
+  cower: 4940597758
+  confused: 4940592718
+  beckon: 5230598276
+  bored: 5230599789

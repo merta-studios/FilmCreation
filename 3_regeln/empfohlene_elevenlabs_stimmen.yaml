@@ -1,0 +1,6 @@
+# Vom Betreiber auszufüllen; Stimme muss auf jedem genutzten Account verfügbar sein.
+haupt_erzaehler:
+  voice_id: null
+  stability: 0.5
+  similarity_boost: 0.75
+nebenstimmen: []

@@ -1,0 +1,46 @@
+name: Agent Helper
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Modus
+        required: true
+        type: choice
+        options: [check-credits, inspect-assets, preview-storyboard]
+      estimated_chars:
+        description: Bedarf in Zeichen inklusive Puffer
+        type: number
+        default: 2000
+permissions:
+  contents: read
+jobs:
+  helper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'requests>=2.31,<3' 'PyYAML>=6,<7'
+      - name: Guthaben prüfen
+        if: inputs.mode == 'check-credits'
+        env:
+          ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
+          ELEVENLABS_API_KEY_1: ${{ secrets.ELEVENLABS_API_KEY_1 }}
+          ELEVENLABS_API_KEY_2: ${{ secrets.ELEVENLABS_API_KEY_2 }}
+          ELEVENLABS_API_KEY_3: ${{ secrets.ELEVENLABS_API_KEY_3 }}
+          ELEVENLABS_API_KEY_4: ${{ secrets.ELEVENLABS_API_KEY_4 }}
+          ELEVENLABS_API_KEY_5: ${{ secrets.ELEVENLABS_API_KEY_5 }}
+          ELEVENLABS_API_KEY_6: ${{ secrets.ELEVENLABS_API_KEY_6 }}
+          ELEVENLABS_API_KEY_7: ${{ secrets.ELEVENLABS_API_KEY_7 }}
+          ELEVENLABS_API_KEY_8: ${{ secrets.ELEVENLABS_API_KEY_8 }}
+          ELEVENLABS_API_KEY_9: ${{ secrets.ELEVENLABS_API_KEY_9 }}
+          ELEVENLABS_API_KEY_10: ${{ secrets.ELEVENLABS_API_KEY_10 }}
+          ESTIMATED_CHARS: ${{ inputs.estimated_chars }}
+        run: python -m 1_system.audio.elevenlabs_pool --estimated-chars "$ESTIMATED_CHARS"
+      - name: Fehlende Funktion melden
+        if: inputs.mode != 'check-credits'
+        run: |
+          echo '::error::3D-Asset-Inspektion und Storyboard-Rendering sind noch nicht implementiert.'
+          exit 1
