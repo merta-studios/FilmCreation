@@ -1,7 +1,8 @@
 # 00 – Arbeitsregeln (vollständig lesen)
 
-**Aktueller Projektstatus:** Das System ist nicht renderfähig. Behaupte weder,
-dass ein Render läuft, noch dass ein Endvideo erzeugt werden kann. Fehlende
+**Aktueller Projektstatus:** Die Kaggle-Pipeline ist nicht renderfähig. Behaupte
+nicht, dass ein Render läuft oder ein Endvideo vorliegt, bevor ein Lauf wirklich
+erfolgreich war. Der lokale Blender-Demo-Renderer ist experimentell. Fehlende
 Implementierungen dürfen nur im Rahmen eines ausdrücklich verlangten
 System-Updates ergänzt werden. Die folgenden Regeln beschreiben den gewünschten
 späteren Ablauf und ersetzen nicht die technische Verfügbarkeit.
@@ -28,7 +29,8 @@ ausdrücklich ein System-Update. Film-Arbeit nur in `2_aktueller_film/`.
    Roblox-Artikel; Rechte und Eignung eigenständig prüfen. Die nötige 3D-Anprobe
    ist aktuell nicht verfügbar – nicht behaupten, dass sie durchgeführt wurde.
 4. Film in Bereich 2 neu anlegen. Validierung und Storyboard ausführen und Bilder
-   kontrollieren, sobald diese Funktionen existieren. Die heutige Grundprüfung
+   kontrollieren. Der Storyboard-Modus zeigt aktuell nur die fest codierte Demo,
+   nicht beliebige Filme. Die heutige Grundprüfung
    prüft weder Bodenkontakt noch Bildkomposition.
 5. Sobald die Pipeline tatsächlich funktioniert: Start-Workflow auslösen, auf
    bestätigte Kaggle-Übergabe warten und danach Antwort beenden; Untertitelstatus

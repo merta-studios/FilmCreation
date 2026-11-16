@@ -2,14 +2,41 @@
 
 ## Wichtig: noch kein fertiges Renderstudio
 
-Dieser Stand ist ein **Teilprojekt**, nicht produktionsreif. Der Demofilm ist ein
-Text-/Shot-Konzept und kann nicht gerendert werden. Nicht vorhanden sind unter
-anderem Blender-Szenenbau und R15-Rig, Asset-Suche/Import/Anprobe, Emote-Loader,
-Shot-Rendering, Kaggle-Bundle/Worker/Callback, Output-Abholung und
-FFmpeg-Mastering. Die Start-, Finish-, Preview- und Inspect-Modi beenden sich
-absichtlich mit Fehler; der Fallback hat keinen Zeitplan. Nichts davon als
-laufenden Render oder fertiges MP4 interpretieren. Externe APIs, GPU, Blender,
-FFmpeg und die Workflows wurden hier nicht live getestet.
+Dieser Stand ist weiterhin **nicht produktionsreif**. Neu sind ein einfacher
+Blender-Demo-Szenenbau, Spracherzeugung mit Timeline und ein FFmpeg-Schnitt mit
+optionalen Untertiteln. Die Figuren sind einfache 15-teilige Blockfiguren, kein
+Roblox-kompatibles R15-Skelett. Der Renderer bildet ausschließlich die vier
+fest codierten Demo-Shots ab und ignoriert viele Vorgaben in den Filmdateien.
+Ein vollständiger Durchlauf mit ElevenLabs, Blender und Kaggle wurde nicht live
+verifiziert. FFmpeg-Schnitt und Untertitel wurden mit synthetischen Clips getestet.
+
+Roblox-Assets/Emotes, Anprobe, universeller Szenenbau, echte Animationen,
+Kaggle-Bundle/Worker/Callback, Output-Abholung, Musik und SFX im Mastering fehlen
+weiterhin. Start-, Finish- und Inspect-Modi melden dies als Fehler; der Fallback
+hat keinen Zeitplan. Der Storyboard-Modus rendert nur Bilder der festen Demo.
+
+### Experimenteller lokaler Demo-Render
+
+Voraussetzungen: Python 3.11, Blender-Python-Wheel `bpy==4.2.0` mit benötigten
+Linux-OpenGL/X11-Laufzeitbibliotheken, FFmpeg mit libx264 und libass, Pillow,
+ElevenLabs-Key und eine gültige Voice-ID. In Ubuntu beispielsweise:
+
+```bash
+sudo apt-get install libxrender1 libxi6 libxxf86vm1 libxfixes3 libgl1 libsm6 libxkbcommon0 ffmpeg
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r 1_system/requirements.txt 'bpy==4.2.0' Pillow
+# ELEVENLABS_API_KEYS in der Umgebung setzen; niemals in Git speichern.
+# In 3_regeln/empfohlene_elevenlabs_stimmen.yaml eine gültige voice_id eintragen.
+python -m 1_system.tools.render_demo_local --preview
+```
+
+Ausgabe: `render_output/final_film.mp4` und `storyboard.png`. Der Vorgang kann
+Credits verbrauchen und ist nicht als vollständig erprobter Produktionsweg zu
+verstehen. `--preview` rendert 540×960 und skaliert im Mastering auf 1080×1920;
+ohne diesen Schalter werden die Shots in 1080×1920 berechnet. Der lokale Weg
+unterstützt nur die Demo, keine beliebigen Filme. Die Ausgabe ist bei fehlender
+Roblox-Anbindung nicht authentisch und erzielt nicht die gewünschte Endqualität.
 
 ## 1. Lokaler Test der vorhandenen Grundfunktionen
 
@@ -26,7 +53,7 @@ python -m 1_system.tools.validate_film --strict
 
 Die Prüfung betrifft nur das deklarative Beispiel. Sie prüft **nicht**, ob
 Figuren auf dem Boden stehen, ob ein Shot gut aussieht oder gerendert werden
-kann. SFX/ASS-Bausteine existieren, sind jedoch nicht in ein Mastering integriert.
+kann. SFX-Bausteine sind noch nicht in das Mastering integriert; ASS-Untertitel werden optional eingebrannt.
 
 ## 2. GitHub und erster Credit-Test
 

@@ -34,7 +34,7 @@ def test_subtitles_and_sfx(tmp_path):
     path = sound.build_tiktok_subtitles(t, tmp_path / 'x.ass')
     content = path.read_text()
     assert 'PlayResX: 1080' in content and 'PlayResY: 1920' in content
-    assert 'Hallo' in content and '\\k' in content
+    assert 'Hallo' in content and '\\c&H00FFFF&' in content
     assert sound.generate_procedural_sfx('rain', .1, tmp_path / 'rain.wav').read_bytes()[:4] == b'RIFF'
 
 

@@ -14,12 +14,20 @@ vollständigen Film. Python-Paketname beginnt mit einer Zahl: Import über
   müssen vom Aufrufer korrekt bestimmt werden.
 - `audio.sound_design`: `build_tiktok_subtitles`, `generate_procedural_sfx`,
   `duck_music_under_voice`, `normalize_lufs`, `burn_subtitles`; FFmpeg erforderlich.
-  Ein automatischer Mix oder Subtitle-Schalter im Mastering existiert noch nicht.
+  Das experimentelle Mastering unterstützt das Einbrennen per Boolean; Musik/SFX
+  werden darin noch nicht automatisch gemischt.
 - `tools.validate_film`: deklaratives Schema aus der Demo, prüft Format,
   Untertitel, drei Figuren, Shot-Kameras und Text-Cues. Kein 3D-Check.
 - `roblox_api.rbxm_parser`: eingeschränkter XML/RBXMX-Parser mit lokalen
   Attachment-CFrames; Binärformate, Meshes und Blender-Import fehlen.
 
-Blender-3D-Engine, Kartenbau, korrekte R15-Verformung, Roblox-Emotes,
-Asset-Inspektion, Kaggle-Anbindung, Asset-Lizenzen, Shot-Timing, Mastering und
-visuelle Vorschauen sind **nicht einsatzbereit**. Keine Funktionen dafür erfinden.
+- `blender_engine.scene_builder`: vier fest codierte Demo-Bilder/-Shots, keine
+  allgemeine Karten-API und keine echten R15-Rigs. `agent-helper.yml` bietet
+  `preview-storyboard` dafür an; das ersetzt keine Storyboard-Prüfung neuer Filme.
+- `audio.generate_timeline`: ElevenLabs-Segmente und Timeline generieren.
+- `tools.assemble_final`: Videos/Audio passend zu Timeline-Frames schneiden,
+  optionale Untertitel und Storyboard erzeugen; kein Musik-/SFX-Mix.
+- `tools.render_demo_local`: experimenteller lokaler End-to-End-Demo-Aufruf.
+
+Roblox-Emotes, Asset-Inspektion, Kaggle-Anbindung, Asset-Lizenzen und universeller
+Szenenbau sind nicht einsatzbereit. Keine Funktionen dafür erfinden.
