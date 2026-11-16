@@ -65,7 +65,7 @@ python -m 1_system.tools.render_local --reuse-audio --quality high
 
 | Secret | Zweck |
 |---|---|
-| `GH_CALLBACK_TOKEN` | Fine-grained PAT nur für dieses Repo, Recht *Actions: Read and write* + *Contents: Read and write* (Release). Nötig, wenn der Kaggle-Kernel Workflow 2 selbst starten soll. Ohne Token wird `github.token` benutzt – das darf innerhalb eines Kernels keine Workflows starten. |
+| `GH_CALLBACK_TOKEN` | Fine-grained PAT nur für dieses Repo, Recht *Actions: Read and write* + *Contents: Read and write* (Release). Optional für den Workflow-Dispatch aus GitHub Actions; wird niemals an Kaggle übergeben. |
 | `ROBLOX_API_KEY` | Open-Cloud-Key für Asset-Suche/-Download (`legacy-asset:manage`, `asset:read`, `thumbnail:read`) |
 | `ROBLOX_USER_ID` | eigene User-ID, optional für Store-Suchen |
 
@@ -118,8 +118,8 @@ Ein Zeichen ≈ ein Credit.
    (`<user>/filmcreation-<run>-<id>`) mit `machine_shape: NvidiaTeslaT4`,
    `enable_internet: true`, `is_private: true`. Der Kernel klont exakt den
    Commit des Laufs, rendert die Shots auf zwei Workern, mergt das Manifest und
-   ruft – wenn `GH_CALLBACK_TOKEN` gesetzt ist – Workflow 2 auf.
-5. Ergebnis manuell holen (falls der Callback nicht greift):
+   liefert die Ergebnisse an den wartenden GitHub-Runner zurück.
+5. Ergebnis bei Bedarf manuell holen:
 
 ```bash
 python -m 1_system.kaggle_bridge.parallel_render download \
@@ -130,7 +130,7 @@ Die Kaggle-CLI muss dafür im `PATH` sein (`pip install kaggle`); die Workflows
 installieren sie selbst.
 
 **Wichtig:** Der Kernel bekommt keine Secrets. Er klont das öffentliche Repo und
-kennt nur die Kernel-Slugs sowie optional den Callback-Token als Kernel-Secret.
+kennt nur die öffentlichen Konfigurationsdaten und Kernel-Slugs.
 
 ---
 
@@ -160,9 +160,8 @@ rechtlicher Bewertung einsetzen.
 * Workflows erscheinen im „Run workflow“-Menü erst, wenn die Datei auf dem
   Standardbranch liegt.
 * Releases brauchen `contents: write` – die Workflows setzen das selbst.
-* Workflow 1 → Workflow 2 läuft über `workflow_run` (bei Erfolg) und über den
-  expliziten Callback aus `notify`. Beides ist idempotent: Workflow 2 prüft, ob
-  das Release schon existiert.
+* Workflow 1 → Workflow 2 läuft über `workflow_run` (bei Erfolg) und optional
+  per Dispatch aus dem GitHub-Runner. Workflow 2 prüft, ob das Release schon existiert.
 * Artefakte: `render-session` (Timeline, Audio, Untertitel),
   `render-shots` (Clips + Manifest), `kaggle-state`.
   Aufbewahrung: 14 Tage (GitHub-Standard).

@@ -198,3 +198,11 @@ def test_api_token_is_passed_as_token_not_written_as_legacy_key(tmp_path, monkey
     env = client._env()
     assert env['KAGGLE_API_TOKEN'] == 'KGAT_fake_token'
     assert 'KAGGLE_USERNAME' not in env and 'KAGGLE_KEY' not in env
+
+
+def test_kernel_never_serializes_callback_secret(tmp_path):
+    marker = 'distinct-callback-secret-should-not-be-written'
+    folder = builder.build_kernel(tmp_path / 'kernel', 'u/render',
+                                  'https://github.com/a/b.git', 'abc', 'u/dataset',
+                                  callback={'repo': 'a/b', 'token': marker})
+    assert all(marker not in file.read_text() for file in folder.iterdir() if file.is_file())
