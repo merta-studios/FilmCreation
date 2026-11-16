@@ -2,8 +2,9 @@
 
 Was die Roblox-APIs wirklich hergeben (Stand der offiziellen Doku)
 ------------------------------------------------------------------
-* **Creator Store / Toolbox:** ``GET https://apis.roblox.com/toolbox-service/v2/assets``
-  mit ``search``, ``maxPageSize``, ``pageToken``. Braucht einen Open-Cloud-Key.
+* **Creator Store / Toolbox:** ``POST https://apis.roblox.com/toolbox-service/v2/assets:search``
+  mit JSON-Feldern ``query``, ``searchCategoryType`` und ``maxPageSize``.
+  Benoetigt den Open-Cloud-Scope ``creator-store-product:read``.
   Liefert Metadaten (ID, Name, Creator, Asset-Typ), **nicht** die Modelldatei.
 * **Asset-Metadaten:** ``GET https://apis.roblox.com/assets/v1/assets/{assetId}``
   (Scope ``asset:read``).

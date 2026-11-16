@@ -56,7 +56,7 @@ python -m 1_system.tools.render_local --reuse-audio --quality high
 
 | Secret | Zweck | Ohne dieses Secret |
 |---|---|---|
-| `ELEVENLABS_API_KEYS` | Komma-/zeilengetrennte Keys | keine Sprachausgabe |
+| `ELEVENLABS_API_KEYS` | Komma-/zeilengetrennte Keys; benötigt mindestens `user_read` für die Guthabenprüfung sowie die Berechtigungen für Stimmen und Text-to-Speech | keine Sprachausgabe |
 | oder `ELEVENLABS_API_KEY_1` … `_6` | einzelne Keys | wie oben |
 | `KAGGLE_USERNAME` | Kaggle-Konto | Render läuft auf GitHub (nur `preview`) |
 | `KAGGLE_KEY` | Kaggle-API-Token | wie oben |
@@ -66,7 +66,7 @@ python -m 1_system.tools.render_local --reuse-audio --quality high
 | Secret | Zweck |
 |---|---|
 | `GH_CALLBACK_TOKEN` | Fine-grained PAT nur für dieses Repo, Recht *Actions: Read and write* + *Contents: Read and write* (Release). Optional für den Workflow-Dispatch aus GitHub Actions; wird niemals an Kaggle übergeben. |
-| `ROBLOX_API_KEY` | Open-Cloud-Key für Asset-Suche/-Download (`legacy-asset:manage`, `asset:read`, `thumbnail:read`) |
+| `ROBLOX_API_KEY` | Open-Cloud-Key für Asset-Suche/-Download (`creator-store-product:read`, `legacy-asset:manage`, bei Bedarf `asset:read`) |
 | `ROBLOX_USER_ID` | eigene User-ID, optional für Store-Suchen |
 
 Keys niemals in `2_aktueller_film/`, Workflows, Kernel-Metadaten oder Artefakte
