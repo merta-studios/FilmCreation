@@ -1,46 +1,22 @@
-# ============================================================================
-#  FILM-KONFIGURATION  -  gilt nur fuer den aktuellen Film
-#  Alles hier wird von 1_system/tools/validate_film.py streng geprueft.
-# ============================================================================
-titel: "In dieser Stadt hat jeder nur 10.000 Schritte"
-slug: schritte
-
-# Das Format ist IMMER TikTok-Hochformat. Aendere es nicht.
+titel: "In dieser Stadt leuchtet dein Name"
+slug: dein-name
 format:
   width: 1080
   height: 1920
   fps: 24
-
-# preview (schnell) | high (Standard) | max (sehr langsam, beste Qualitaet)
-qualitaet: high
-
-# Pflichtfeld: true = TikTok-Untertitel einbrennen, false = kein Text im Bild.
-# Der Betreiber entscheidet das pro Film - nie raten, nie weglassen.
+qualitaet: preview
 subtitles: true
-
-# Musik: Stimmung aus 1_system/audio/sound_design.py (MUSIC_MOODS)
 musik:
   mood: melancholisch
   gain_db: -20
   auto_ducking: true
-
-# Grundlautstaerke der SFX (Regen, Schritte, Uhr ...) in dB unter der Stimme
 sfx_gain_db: -14
-
-# Look: classic = 2006er Blox-Look, modern = heutige Materialien, mix = beides
 look_era: mix
-
-# Farb-Look (AgX) und Saettigung
 color_look: "AgX - Medium High Contrast"
-
-# TikTok-Sicherheitszonen (Pixel bei 1080x1920) - Untertitel und Gesichter
-# muessen darueber bzw. innerhalb liegen.
 safe_zone:
   bottom_px: 380
   right_ui_px: 190
   top_px: 110
-
-# Optionaler Feinschliff der Untertitel
 untertitel_stil:
   font: inter
   size: 62
