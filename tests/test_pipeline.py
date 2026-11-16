@@ -196,6 +196,7 @@ def test_credit_check_without_configured_voices_does_not_claim_render_ready(monk
             return SimpleNamespace(ok=True, summary=lambda: 'Guthaben ok')
 
     monkeypatch.setattr(generate.pool_module, 'ElevenLabsPool', CreditPool)
+    monkeypatch.delenv('GITHUB_STEP_SUMMARY', raising=False)
     assert generate.credits_only(Path('.')) == 1
     assert checks and checks[0][0] > 0 and checks[0][1] is None
     assert 'Stimmen nicht konfiguriert' in capsys.readouterr().err
@@ -207,3 +208,13 @@ def test_list_shots_without_audio_timeline(tmp_path, capsys):
     scene_builder = importlib.import_module('1_system.blender_engine.scene_builder')
     assert scene_builder.main(['--list-shots', '--timeline', str(tmp_path / 'missing.json')]) == 0
     assert 'Shot  1' in capsys.readouterr().out
+
+
+def test_custom_model_passes_position_and_rotation_once():
+    primitives = importlib.import_module('1_system.blender_engine.primitives_and_map')
+    calls = []
+    world = SimpleNamespace(custom_models={'tower': lambda world, **kw: calls.append(kw)})
+    assert primitives.build_spec([{'type': 'custom_model', 'model': 'tower',
+                                   'name': 'clock', 'pos': (1, 2, 3),
+                                   'rotation': (0, 0, 1), 'params': {'height': 7}}], world) == ['clock']
+    assert calls == [{'pos': (1, 2, 3), 'rotation': (0, 0, 1), 'height': 7}]
