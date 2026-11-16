@@ -1,0 +1,23 @@
+name: 2 – Finish Film
+on:
+  workflow_dispatch:
+    inputs:
+      session_id:
+        description: Session-ID
+        required: true
+        type: string
+      status:
+        description: Status
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Mastering nicht verfügbar
+        run: |
+          echo '::error::Kaggle-Abruf und FFmpeg-Mastering sind noch nicht implementiert. Kein Film wurde erzeugt.'
+          exit 1

@@ -1,0 +1,17 @@
+segments:
+  - id: 1
+    role: ERZAEHLER
+    text: "In dieser Stadt hat jeder nur zehntausend Schritte. Deshalb fährt jeder mit dem Auto zum Briefkasten. Über unseren Köpfen leuchten Zahlen, und mit jedem Schritt werden sie kleiner."
+    pause_after: 0.5
+  - id: 2
+    role: ERZAEHLER
+    text: "Ich wohnte mit meiner Mutter in einem kleinen Haus am Hügel. Wir hatten kein Auto. Mama trug mich oft zur Schule, damit meine Zahl länger groß blieb. Eines Tages bemerkte ich, dass ihre Zahl fast auf null stand."
+    pause_after: 0.5
+  - id: 3
+    role: ERZAEHLER
+    text: "In der Schule lachten die anderen über meine alten Schuhe. Nur meine Freundin Lina setzte sich neben mich. Als ich ihr von Mama erzählte, wurde sie ganz still. Am nächsten Morgen wartete sie mit einem alten Rollstuhl vor unserer Tür."
+    pause_after: 0.5
+  - id: 4
+    role: ERZAEHLER
+    text: "Lina hatte ihn mit ihrem Großvater repariert. Von da an schob ich Mama zum Markt und Lina begleitete uns. Bald kamen die Nachbarn dazu und halfen einander den Hügel hinauf. Mamas Zahl blieb stehen. Und zum ersten Mal seit Langem ging in unserem kleinen Haus wieder Licht an."
+    pause_after: 0.5

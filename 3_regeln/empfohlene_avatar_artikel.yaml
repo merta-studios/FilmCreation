@@ -1,0 +1,11 @@
+# Vorschläge aus der Aufgabenstellung, ohne Live-Verifikation oder Rechtefreigabe.
+# 3D-Anprobe vor Einsatz verpflichtend, gegenwärtig nicht implementiert.
+haare:
+  pal_hair: 63690008
+  brown_hair: 62234425
+  blonde_spiked_hair: 376524487
+  brown_charmer_hair: 376548738
+suche:
+  bevorzugt: offizieller Roblox-Creator
+  kategorien: [classic_faces, shirts, pants, backpacks, hats, glasses]
+  vermeiden: [fremde_ugc, layered_clothing]

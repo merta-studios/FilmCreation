@@ -1,0 +1,23 @@
+name: 1 – Start Render
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: render-session
+  cancel-in-progress: false
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install 'PyYAML>=6,<7'
+      - run: python -m 1_system.tools.validate_film --strict
+      - name: Render nicht verfügbar
+        run: |
+          echo '::error::Kaggle-Übergabe und Renderer sind noch nicht implementiert. Kein Render wurde gestartet.'
+          exit 1

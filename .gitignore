@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Blender / Render
+*.blend1
+*.blend2
+*.blend3
+*.blend4
+*.blend5
+*.blend6
+*.blend7
+*.blend8
+*.blend9
+*.blend10
+render_output/
+*.png
+!3_regeln/**/*.png
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+!1_system/**/test_*.wav
+
+# Kaggle / Bundles
+kaggle_bundle/
+kaggle_output/
+kernel_output/
+*.zip
+
+# Secrets / Keys (NIEMALS einchecken)
+.env
+.env.*
+kaggle.json
+*.pem
+*.key
+credentials*.json
+token*.txt
+secrets*.json
+
+# Audio / Assets (werden per Artifact transportiert)
+audio_output/
+assets_cache/
+assets_downloaded/
+*.rbxm
+*.rbxmx
+*.gltf
+*.glb
+*.fbx
+*.obj
+!1_system/**/*.obj
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Timeline / Zwischenprodukte
+timeline_resolved.json
+render_status.json
+session_*.json
+*.ass
+!2_aktueller_film/*.yaml
