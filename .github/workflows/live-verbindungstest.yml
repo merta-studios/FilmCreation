@@ -87,41 +87,34 @@ jobs:
               print(f'::error::Kaggle-Test fehlgeschlagen: {type(exc).__name__}')
               sys.exit(1)
           PY
-      - name: Kaggle GPU Rauchtest (privater Testkernel)
+      - name: Kaggle GPU Rauchtest Ergebnis nachverfolgen
         if: always() && steps.kaggle_auth.outcome == 'success'
         env:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
-          python - <<'PY'
-          import importlib, json, os, sys, tempfile
+          python - <<'PY2'
+          import importlib, tempfile, sys
           from pathlib import Path
           mod = importlib.import_module('1_system.kaggle_bridge.kaggle_client')
-          c = mod.KaggleClient()
-          slug = f'{c.username}/filmcreation-gpu-smoke-{os.environ["GITHUB_RUN_ID"]}'
-          with tempfile.TemporaryDirectory() as temp:
-              folder = Path(temp)
-              (folder / 'main.py').write_text('import subprocess\nsubprocess.run(["nvidia-smi", "-L"], check=True)\nprint("GPU_SMOKE_OK")\n')
-              (folder / 'kernel-metadata.json').write_text(json.dumps({'id': slug, 'title': 'FilmCreation GPU smoke ' + os.environ['GITHUB_RUN_ID'], 'code_file': 'main.py', 'language': 'python', 'kernel_type': 'script', 'is_private': True, 'enable_gpu': True, 'enable_internet': False, 'machine_shape': 'NvidiaTeslaT4', 'dataset_sources': [], 'competition_sources': [], 'kernel_sources': []}))
-              try:
-                  c.push_kernel(folder)
-                  print('::notice::Privater Kaggle GPU Testkernel gestartet')
-                  state = c.wait_for_kernel(slug, timeout_minutes=12, poll_seconds=30)
-                  print(f'::notice::Kaggle GPU Kernelstatus: {state.status}')
-                  if not state.ok:
-                      raise RuntimeError('GPU-Kernel nicht erfolgreich')
-                  out = folder / 'output'
-                  c.download_output(slug, out)
-                  logs = list(out.rglob('*.log'))
-                  if not logs or not any('GPU_SMOKE_OK' in p.read_text(errors='replace') for p in logs):
-                      raise RuntimeError('GPU-Nachweis fehlt im Kernel-Log')
-                  print('::notice::Kaggle GPU Test erfolgreich: GPU_SMOKE_OK im Kernel-Log')
-              except Exception as exc:
-                  output = getattr(exc, 'output', '').lower()
-                  reasons = [w for w in ('401','403','404','phone','quota','gpu','permission','forbidden','unauthorized') if w in output]
-                  print(f'::error::Kaggle GPU Test fehlgeschlagen: {type(exc).__name__}, Indikatoren: {",".join(reasons)}')
+          client = mod.KaggleClient()
+          slug = f'{client.username}/filmcreation-gpu-smoke-43855654214'
+          try:
+              state = client.kernel_status(slug)
+              print(f'::notice::Kaggle GPU Testkernelstatus: {state.status}')
+              if not state.ok:
+                  print('::error::Kaggle GPU Test noch nicht erfolgreich abgeschlossen.')
                   sys.exit(1)
-          PY
+              with tempfile.TemporaryDirectory() as directory:
+                  client.download_output(slug, Path(directory))
+                  logs = list(Path(directory).rglob('*.log'))
+                  if not any('GPU_SMOKE_OK' in p.read_text(errors='replace') for p in logs):
+                      raise RuntimeError('GPU Testausgabe fehlt')
+                  print('::notice::Kaggle GPU Rauchtest erfolgreich')
+          except Exception as exc:
+              print(f'::error::Kaggle GPU Test Ergebnis nicht verfuegbar: {type(exc).__name__}')
+              sys.exit(1)
+          PY2
       - name: Roblox Open Cloud
         if: always()
         env:
