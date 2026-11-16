@@ -334,7 +334,6 @@ def add_particles(scene, kind: str = "rain", count: int = 2500,
     particle_data.size_random = 0.6
     particle_data.use_rotations = True
     particle_data.rotation_mode = "NONE"
-    particle_data.seed = int(seed)
     modifier = emitter.modifiers.new("Wetter", "PARTICLE_SYSTEM")
     modifier.particle_system.settings = particle_data
     modifier.particle_system.seed = int(seed)
