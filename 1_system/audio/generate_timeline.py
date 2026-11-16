@@ -281,7 +281,9 @@ def credits_only(film_dir: Path, out_json: Optional[Path] = None) -> int:
     if out_json:
         out_json.parent.mkdir(parents=True, exist_ok=True)
         out_json.write_text(json.dumps({"characters": total, "needed": needed,
-                                        **report.to_dict()}, ensure_ascii=False, indent=2),
+                                        **report.to_dict(), "missing_voices": missing_voices,
+                                        "render_ready": report.ok and not missing_voices},
+                                       ensure_ascii=False, indent=2),
                             encoding="utf-8")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
