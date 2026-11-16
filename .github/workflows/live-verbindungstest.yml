@@ -1,5 +1,5 @@
 # Nur manuell oder bei Aenderungen an diesem Test auf dem Arbeitsbranch.
-# Die Tests lesen Daten, erzeugen keine bezahlte Sprache und starten keinen Kernel.
+# Die Tests lesen Daten, erzeugen keine bezahlte Sprache und verfolgen den bestehenden GPU-Testkernel.
 name: Live-Verbindungstest
 on:
   workflow_dispatch:
