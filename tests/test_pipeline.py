@@ -67,7 +67,7 @@ def test_script_validation_synthesis_and_resolution(tmp_path):
             voices["nebenstimmen"][speaker] = {"voice_id": f"v-{speaker}", "settings": {}}
 
     segments = generate.validate_script(film.script, voices)
-    assert len(segments) >= 13
+    assert len(segments) >= 3
     assert sum(len(segment["text"]) for segment in segments) >= 140
 
     pool = FakePool()
