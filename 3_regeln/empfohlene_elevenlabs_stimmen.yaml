@@ -1,31 +1,81 @@
-# Stimmen für den aktuellen Film.
+# Empfohlene ElevenLabs-Stimmen fuer das Film-Studio
+# ====================================================
+# Alle unten eingetragenen Standard-Voice-IDs sind offizielle ElevenLabs-Premade-Stimmen,
+# die auf jedem ElevenLabs-Konto (auch Free-Tier) sofort verfuegbar sind und mit
+# `eleven_multilingual_v2` natuerliches, klares Deutsch sprechen.
 #
-# Diese Datei ist gleichzeitig die Besetzungsliste: Jeder `speaker` in
-# 2_aktueller_film/script_and_voices.yaml braucht hier einen Eintrag mit
-# `voice_id`. Die ID findest du in ElevenLabs unter "Voices" (Rechtsklick auf
-# die Stimme -> Copy Voice ID).
-#
-# Pflicht: Die Stimme muss auf mindestens einem der konfigurierten API-Keys
-# freigeschaltet sein. Geteilte "Library"-Stimmen funktionieren nur, wenn sie
-# dem Konto hinzugefügt wurden.
-#
-# Regeln aus Erfahrung:
-# * Eine Erzählerstimme trägt 90-100 % des Texts. Wechsel klingen billig.
-# * Nebenstimmen: maximal 3, je 1-2 Sätze, deutlich anders im Timbre.
-# * `stability` 0.45-0.6 = lebendig; >0.7 = monoton, <0.35 = instabil.
-# * `similarity_boost` 0.7-0.8 ist der sichere Bereich.
+# Eigene oder geklonte Stimmen koennen jederzeit eingetragen werden:
+#   https://elevenlabs.io/app/voice-library -> Stimme oeffnen -> "Copy Voice ID"
 
 haupt_erzaehler:
-  voice_id: null            # HIER eintragen, sonst kein Render
-  stability: 0.5
-  similarity_boost: 0.75
+  # "Daniel" - ruhig, warm, dokumentarisch, unaufgeregt ("In dieser Stadt...")
+  voice_id: "onwK4e9ZLuTAKqWW03F9"
+  name: "Daniel (Erzaehler - ruhig, dokumentarisch)"
+  model_id: "eleven_multilingual_v2"
+  settings:
+    stability: 0.48
+    similarity_boost: 0.80
+    style: 0.22
+    use_speaker_boost: true
 
-# Format: speaker-id: {voice_id: ..., stability: ...}
-# Die IDs muessen zu `speaker:` in script_and_voices.yaml passen.
-nebenstimmen: {}
-#  neb_lina:
-#    voice_id: "EXAVITQu4vr4xnSDxMaL"
-#    stability: 0.55
-#  neb_vater:
-#    voice_id: "pNInz6obpgDQGcFmaJgB"
-#    stability: 0.6
+# Optionale Nebenstimmen fuer kurze Figurensaetze im Film.
+# In 2_aktueller_film/script_and_voices.yaml per `speaker: neb_lina` usw. referenzieren.
+nebenstimmen:
+  neb_lina:
+    # "Sarah" - weiche, junge Stimme (ideal fuer jugendliche Figuren wie Lina)
+    voice_id: "EXAVITQu4vr4xnSDxMaL"
+    name: "Sarah (junge Figur)"
+    model_id: "eleven_multilingual_v2"
+    settings:
+      stability: 0.50
+      similarity_boost: 0.78
+      style: 0.20
+      use_speaker_boost: true
+
+  neb_mutter:
+    # "Matilda" - warme, reife Stimme (ideal fuer Mutter / erwachsene Nebenrolle)
+    voice_id: "XrExE9yKIg1WjnnlVkGX"
+    name: "Matilda (warme Erwachsenenstimme)"
+    model_id: "eleven_multilingual_v2"
+    settings:
+      stability: 0.54
+      similarity_boost: 0.80
+      style: 0.18
+      use_speaker_boost: true
+
+  neb_mann:
+    # "Bill" - ruhige, aeltere maennliche Stimme
+    voice_id: "pqHfZKP75CvOlQylNhV4"
+    name: "Bill (aeltere maennliche Nebenstimme)"
+    model_id: "eleven_multilingual_v2"
+    settings:
+      stability: 0.55
+      similarity_boost: 0.78
+      style: 0.15
+      use_speaker_boost: true
+
+  neb_jung:
+    # "Liam" - junge maennliche Stimme
+    voice_id: "TX3LPaxmHKxFdv7VOQHJ"
+    name: "Liam (junge maennliche Nebenstimme)"
+    model_id: "eleven_multilingual_v2"
+    settings:
+      stability: 0.48
+      similarity_boost: 0.78
+      style: 0.22
+      use_speaker_boost: true
+
+# Bewaehrte Alternativen fuer den Haupterzaehler (zum schnellen Tauschen):
+# - "JBFqnCBsd6RMkjVDRZzb"  (George - warm, maerchenhaft-ruhiger Erzaehler)
+# - "N2lVS1w4EtoT3dr4eOWO"  (Callum - tief, ernst, leicht mystisch)
+# - "pNInz6obpgDQGcFmaJgB"  (Adam - markant, dokumentarisch)
+# - "Xb7hH8MSUJpSbSDYk0k2"  (Alice - klare, ruhige weibliche Erzaehlerin)
+
+auswahl_kriterien:
+  erzaehler:
+    - Ruhig, warm, dokumentarisch, leicht geheimnisvoll - niemals werblich oder schrill.
+    - Natuerliche deutsche Aussprache mit dem Modell `eleven_multilingual_v2`.
+    - Deutliche Konsonanten, damit das Wort-Alignment (Timestamps) sauber greift.
+  nebenstimmen:
+    - Klar vom Erzaehler unterscheidbar, aber im selben ruhigen Tonfall.
+    - Sparsam einsetzen: maximal 1-2 kurze Saetze pro Figur.

@@ -254,8 +254,6 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
     root = bpy.data.objects.new(f"{name}_Root", None)
     root.empty_display_type = "PLAIN_AXES"
     root.empty_display_size = 0.6
-    root.location = location
-    root.rotation_euler = (0.0, 0.0, math.radians(rotation_z_deg))
     collection.objects.link(root)
 
     armature_data = bpy.data.armatures.new(f"{name}_R15")
@@ -278,6 +276,7 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
             edit_bones[bone_name].parent = edit_bones[parent]
             edit_bones[bone_name].use_connect = False
     bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.context.view_layer.update()
 
     skin = textures.brickcolor_rgba(skin_color)
     shirt = textures.brickcolor_rgba(shirt_color)
@@ -293,6 +292,8 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
         "skin_hand": _material(f"{name}_skin_hand", skin, roughness=0.62),
     }
 
+    from mathutils import Matrix  # type: ignore
+
     parts: dict[str, object] = {}
     for part_name, size in PART_SIZES.items():
         if part_name == "HumanoidRootPart":
@@ -305,26 +306,27 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
             material = materials[SLOT_PANTS]
         else:
             material = materials["skin_hand"]
-        obj = _cube_part(f"{name}_{part_name}", PART_CENTERS[part_name], size,
+        obj = _cube_part(f"{name}_{part_name}", (0.0, 0.0, 0.0), size,
                          material, collection)
+        bone = armature.data.bones[part_name]
+        bone_parent_mat = (armature.matrix_world
+                           @ bone.matrix_local
+                           @ Matrix.Translation((0.0, bone.length, 0.0)))
+        desired_world = Matrix.Translation(PART_CENTERS[part_name])
         obj.parent = armature
         obj.parent_type = "BONE"
         obj.parent_bone = part_name
-        # Bone-Parenting nutzt das Bone-Ende als Ursprung -> Offset korrigieren
-        bone_tail = BONE_LAYOUT[part_name][2]
-        obj.location = (
-            PART_CENTERS[part_name][0] - bone_tail[0],
-            PART_CENTERS[part_name][1] - bone_tail[1],
-            PART_CENTERS[part_name][2] - bone_tail[2],
-        )
+        obj.matrix_parent_inverse = bone_parent_mat.inverted() @ desired_world
+        obj.location = (0.0, 0.0, 0.0)
+        obj.rotation_euler = (0.0, 0.0, 0.0)
         obj["roblox_part"] = part_name
         parts[part_name] = obj
 
-    # ---- Gesicht ------------------------------------------------------ #
-    face_rig = _build_face(name, collection, particles_parent=parts["Head"],
+    # ---- Gesicht (lokal an Head gehaengt) ----------------------------- #
+    face_rig = _build_face(name, collection, head_part=parts["Head"],
                            skin=skin, face=face, texture_path=face_texture_path)
 
-    # ---- Attachments als Empties -------------------------------------- #
+    # ---- Attachments als Empties (lokal an Koerperteile gehaengt) ----- #
     attachments: dict[str, object] = {}
     for attach_name, (part_name, offset, rotation) in ATTACHMENTS.items():
         empty = bpy.data.objects.new(f"{name}_{attach_name}", None)
@@ -337,7 +339,9 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
         empty["attachment"] = attach_name
         attachments[attach_name] = empty
 
-    # ---- Skalierung ---------------------------------------------------- #
+    # ---- Weltposition, Drehung und Skalierung am Root setzen ---------- #
+    root.location = location
+    root.rotation_euler = (0.0, 0.0, math.radians(rotation_z_deg))
     if abs(height_scale - 1.0) > 1e-6:
         root.scale = (height_scale, height_scale, height_scale)
 
@@ -351,6 +355,7 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
         "attachments": attachments,
         "face": face_rig["decal"],
         "eyes": face_rig["eyes"],
+        "pupils": face_rig["pupils"],
         "mouth": face_rig["mouth"],
         "brows": face_rig["brows"],
         "tears": face_rig["tears"],
@@ -368,13 +373,15 @@ def build_r15(name: str = "Mika", skin_color: str = "#E8BEAC", shirt_color: str 
     return character
 
 
-def _plane(name, size, location, material, collection, parent=None):
+def _plane(name, size, location, material, collection, parent=None,
+           apply_scale: bool = True):
     require_bpy()
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=location)
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.0, 0.0))
     obj = bpy.context.object
     obj.name = name
     obj.scale = (size[0], size[1], 1.0)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if apply_scale:
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     obj.rotation_euler = (math.radians(90), 0.0, 0.0)
     obj.data.materials.clear()
     obj.data.materials.append(material)
@@ -383,23 +390,25 @@ def _plane(name, size, location, material, collection, parent=None):
     collection.objects.link(obj)
     if parent is not None:
         obj.parent = parent
+    obj.location = location
     return obj
 
 
-def _build_face(name: str, collection, particles_parent, skin, face: str,
+def _build_face(name: str, collection, head_part, skin, face: str,
                 texture_path: Optional[str] = None) -> dict:
-    """Gesicht als Decal-Plane plus separate Augen, Brauen und Traenen."""
+    """Gesicht als Decal-Plane plus separate Augen, Pupillen, Brauen und Traenen (lokal am Kopf)."""
     require_bpy()
     head_size = PART_SIZES["Head"]
-    z_front = -head_size[1] / 2 - 0.005  # Roblox blickt nach -Y
-    base_z = PART_CENTERS["Head"][2]
+    y_front = -head_size[1] / 2 - 0.005  # Roblox blickt nach -Y (Relativ zu Head-Ursprung)
 
     if texture_path:
         decal_material = _material(f"{name}_face_decal", (1, 1, 1, 1),
                                    roughness=0.5, image_path=texture_path)
         decal = _plane(f"{name}_Face", (head_size[0] * 0.94, head_size[2] * 0.94),
-                       (0.0, z_front, base_z), decal_material, collection)
-        return {"decal": decal, "eyes": None, "mouth": None, "brows": None, "tears": None}
+                       (0.0, y_front, 0.0), decal_material, collection,
+                       parent=head_part, apply_scale=True)
+        return {"decal": decal, "eyes": None, "pupils": None, "mouth": None,
+                "brows": None, "tears": None}
 
     eye_material = _material(f"{name}_eye_white", (0.93, 0.94, 0.95, 1.0), roughness=0.25)
     pupil_material = _material(f"{name}_pupil", (0.05, 0.06, 0.07, 1.0), roughness=0.2)
@@ -409,29 +418,36 @@ def _build_face(name: str, collection, particles_parent, skin, face: str,
                               emission=(0.2, 0.4, 0.6, 0.25))
 
     eyes = []
+    pupils = []
     for side in (-1, 1):
         eye = _plane(f"{name}_Eye{side}", (0.2, 0.15),
-                     (side * 0.24, z_front - 0.002, base_z + 0.1), eye_material, collection)
-        pupil = _plane(f"{name}_Pupil{side}", (0.09, 0.1),
-                       (side * 0.24, z_front - 0.004, base_z + 0.09), pupil_material, collection)
-        pupil.parent = eye
+                     (side * 0.24, y_front - 0.002, 0.10), eye_material, collection,
+                     parent=head_part, apply_scale=False)
+        pupil = _plane(f"{name}_Pupil{side}", (0.09, 0.10),
+                       (side * 0.24, y_front - 0.004, 0.09), pupil_material, collection,
+                       parent=head_part, apply_scale=False)
         eyes.append(eye)
+        pupils.append(pupil)
     mouth = _plane(f"{name}_Mouth", (0.26, 0.07),
-                   (0.0, z_front - 0.002, base_z - 0.24), mouth_material, collection)
+                   (0.0, y_front - 0.002, -0.24), mouth_material, collection,
+                   parent=head_part, apply_scale=False)
     brows = []
     for side in (-1, 1):
         brow = _plane(f"{name}_Brow{side}", (0.18, 0.035),
-                      (side * 0.24, z_front - 0.003, base_z + 0.26), brow_material, collection)
+                      (side * 0.24, y_front - 0.003, 0.26), brow_material, collection,
+                      parent=head_part, apply_scale=True)
         brows.append(brow)
     tears = []
     for side in (-1, 1):
         tear = _plane(f"{name}_Tear{side}", (0.06, 0.16),
-                      (side * 0.24, z_front - 0.005, base_z - 0.06), tear_material, collection)
+                      (side * 0.24, y_front - 0.005, -0.06), tear_material, collection,
+                      parent=head_part, apply_scale=True)
         tear.hide_render = True
         tear.hide_viewport = True
         tears.append(tear)
     decal = None
-    return {"decal": decal, "eyes": eyes, "mouth": mouth, "brows": brows, "tears": tears}
+    return {"decal": decal, "eyes": eyes, "pupils": pupils, "mouth": mouth,
+            "brows": brows, "tears": tears}
 
 
 # --------------------------------------------------------------------------- #
@@ -445,6 +461,7 @@ def set_face(character: dict, face_name: str) -> None:
     spec = FACES[face_name]
     character["current_face"] = face_name
     eyes = character.get("eyes") or []
+    pupils = character.get("pupils") or []
     mouth = character.get("mouth")
     brows = character.get("brows") or []
     tears = character.get("tears") or []
@@ -455,12 +472,16 @@ def set_face(character: dict, face_name: str) -> None:
         "look_down": (0.19, 0.1), "half": (0.2, 0.08),
     }
     width, height = eye_shapes.get(spec["eyes"], (0.2, 0.15))
+    eye_z = 0.14 if spec["eyes"] == "smile" else 0.10
     for eye in eyes:
         eye.scale = (width, height, 1.0)
-        eye.location.z = PART_CENTERS["Head"][2] + (0.14 if spec["eyes"] == "smile" else 0.1)
-        for child in eye.children:
-            child.location = (child.location.x, child.location.y,
-                              -0.02 if spec["eyes"] in ("look_down", "half") else 0.0)
+        eye.location.z = eye_z
+    pupil_h = min(0.10, height * 0.72)
+    pupil_z = (0.07 if spec["eyes"] in ("look_down", "half")
+               else 0.13 if spec["eyes"] == "smile" else 0.09)
+    for pupil in pupils:
+        pupil.scale = (0.09, pupil_h, 1.0)
+        pupil.location.z = pupil_z
 
     mouth_shapes = {
         "line": (0.26, 0.05), "frown": (0.22, 0.06), "open_sad": (0.18, 0.16),
@@ -470,32 +491,30 @@ def set_face(character: dict, face_name: str) -> None:
     if mouth is not None:
         mw, mh = mouth_shapes.get(spec["mouth"], (0.26, 0.05))
         mouth.scale = (mw, mh, 1.0)
-        mouth.location.z = PART_CENTERS["Head"][2] - (0.22 if mh > 0.1 else 0.24)
+        mouth.location.z = -0.22 if mh > 0.1 else -0.24
         if spec["mouth"] == "smile":
             mouth.rotation_euler = (math.radians(90), math.radians(180), 0.0)
-        elif spec["mouth"] == "frown":
-            mouth.rotation_euler = (math.radians(90), 0.0, 0.0)
         else:
             mouth.rotation_euler = (math.radians(90), 0.0, 0.0)
 
     for index, brow in enumerate(brows):
         side = -1.0 if index == 0 else 1.0
-        brow.rotation_euler = (math.radians(90), 0.0,
-                               math.radians(spec["brows"]) * side)
+        brow.rotation_euler = (math.radians(90), math.radians(spec["brows"] * side), 0.0)
     for tear in tears:
         tear.hide_render = not spec["tears"]
         tear.hide_viewport = not spec["tears"]
 
 
 def blink(character: dict, frame: int, duration: int = 4) -> None:
-    """Keyframed ein Blinzeln (Augen schliessen und wieder oeffnen)."""
+    """Keyframed ein Blinzeln (Augen + Pupillen schliessen und wieder oeffnen)."""
     require_bpy()
-    for eye in character.get("eyes") or []:
-        base = eye.scale.copy()
-        for offset, factor in ((0, 1.0), (duration // 2, 0.08), (duration, 1.0)):
-            eye.scale = (base.x, base.y * factor, base.z)
-            eye.keyframe_insert("scale", frame=frame + offset)
-        eye.scale = base
+    for group in (character.get("eyes") or [], character.get("pupils") or []):
+        for elem in group:
+            base = elem.scale.copy()
+            for offset, factor in ((0, 1.0), (duration // 2, 0.08), (duration, 1.0)):
+                elem.scale = (base.x, base.y * factor, base.z)
+                elem.keyframe_insert("scale", frame=frame + offset)
+            elem.scale = base
 
 
 def set_talking(character: dict, start_frame: int, end_frame: int, seed: int = 0) -> None:
@@ -540,8 +559,9 @@ def set_body_colors(character: dict, skin_color: Optional[str] = None,
         materials[SLOT_PANTS].node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = textures.brickcolor_rgba(pants_color)
 
 
-def set_stone(character: dict, enabled: bool = True) -> None:
-    """Verwandelt den Avatar in eine Statue (grau, rau) - fuer 'freeze_as_statue'."""
+def set_stone(character: dict, enabled: bool = True,
+              frame: Optional[int] = None) -> None:
+    """Verwandelt den Avatar in eine Statue (grau, rau) - optional ab `frame` animiert."""
     require_bpy()
     from importlib import import_module
 
@@ -554,12 +574,21 @@ def set_stone(character: dict, enabled: bool = True) -> None:
         bsdf = material.node_tree.nodes.get("Principled BSDF")
         if not bsdf:
             continue
-        bsdf.inputs["Base Color"].default_value = stone if enabled else (
-            textures.brickcolor_rgba(
-                character["meta"].get("shirt_color", "#0D69AC") if slot == SLOT_SHIRT else
-                character["meta"].get("pants_color", "#1B2A35") if slot == SLOT_PANTS else
-                character["meta"].get("skin_color", "#E8BEAC")))
+        original = textures.brickcolor_rgba(
+            character["meta"].get("shirt_color", "#0D69AC") if slot == SLOT_SHIRT else
+            character["meta"].get("pants_color", "#1B2A35") if slot == SLOT_PANTS else
+            character["meta"].get("skin_color", "#E8BEAC"))
+        if frame is not None:
+            pre = max(1, int(frame) - 2)
+            bsdf.inputs["Base Color"].default_value = original if enabled else stone
+            bsdf.inputs["Roughness"].default_value = 0.58 if enabled else 0.92
+            bsdf.inputs["Base Color"].keyframe_insert("default_value", frame=pre)
+            bsdf.inputs["Roughness"].keyframe_insert("default_value", frame=pre)
+        bsdf.inputs["Base Color"].default_value = stone if enabled else original
         bsdf.inputs["Roughness"].default_value = 0.92 if enabled else 0.58
+        if frame is not None:
+            bsdf.inputs["Base Color"].keyframe_insert("default_value", frame=int(frame) + 4)
+            bsdf.inputs["Roughness"].keyframe_insert("default_value", frame=int(frame) + 4)
 
 
 def place_character(character: dict, x: float, y: float, z: float = 0.0,
@@ -569,11 +598,18 @@ def place_character(character: dict, x: float, y: float, z: float = 0.0,
     root = character["root"]
     root.location = (x, y, z)
     root.rotation_euler = (0.0, 0.0, math.radians(rotation_z_deg))
+    if "meta" in character:
+        character["meta"]["base_location"] = (x, y, z)
+        character["meta"]["rotation_z_deg"] = rotation_z_deg
 
 
 def character_head_world(character: dict) -> tuple[float, float, float]:
-    """Weltposition des Kopfes (ohne Blender-Abhaengigkeit berechenbar)."""
-    root = character.get("_location") or character["meta"]["base_location"]
+    """Weltposition des Kopfes (auch ohne Blender-Abhaengigkeit berechenbar)."""
+    if character.get("root") is not None and hasattr(character["root"], "location"):
+        loc = character["root"].location
+        root = (float(loc.x), float(loc.y), float(loc.z))
+    else:
+        root = character.get("_location") or character["meta"]["base_location"]
     scale = float(character.get("scale", 1.0))
     return (root[0], root[1], root[2] + PART_CENTERS["Head"][2] * scale + 0.6 * scale)
 

@@ -197,7 +197,8 @@ def decide(runs: list[RunInfo], now: Optional[datetime] = None,
             actions.append(Action("dispatch", RENDER_WORKFLOW,
                                   reason="Kaggle ausgefallen - GitHub-Fallback",
                                   inputs={"render_target": "github", "quality": "preview",
-                                          "shots": shots, "subtitles": "auto"}))
+                                          "shots": shots, "subtitles": "auto",
+                                          "source_run_id": run.run_id}))
         else:
             actions.append(Action("none",
                                   reason=f"Kernel laeuft noch ({kernel_status or 'unbekannt'}), "
@@ -223,7 +224,63 @@ def watchdog(repo_state_dir: Path = Path("render_output"), max_run_minutes: int 
         return report
     open_runs = [run for run in runs if run.in_progress]
     if not open_runs:
-        report["actions"] = [Action("none", reason="kein offener Render-Lauf").to_dict()]
+        # Async Kaggle launches finish the GitHub job immediately. Continue monitoring
+        # the latest completed launcher via its persisted kaggle-state artifact.
+        completed = [run for run in runs if run.conclusion.lower() == "success"]
+        state = {}
+        source_run = None
+        for run in completed:
+            if gh.download_artifact(run.run_id, "kaggle-state", repo_state_dir / "state"):
+                candidate = read_kaggle_state(repo_state_dir / "state")
+                if candidate.get("pending") and candidate.get("kernel"):
+                    state, source_run = candidate, run
+                    break
+        if not source_run:
+            report["actions"] = [Action("none", reason="kein offener oder ausstehender Render-Lauf").to_dict()]
+            return report
+        try:
+            already_finished = any(
+                str(source_run.run_id) in item.display_title
+                for item in gh.runs(FINISH_WORKFLOW, limit=50))
+        except RuntimeError:
+            already_finished = False
+        try:
+            fallback_dispatched = any(
+                f"Quelle: {source_run.run_id}" in item.display_title
+                for item in gh.runs(RENDER_WORKFLOW, limit=50)
+                if item.run_id != source_run.run_id)
+        except RuntimeError:
+            fallback_dispatched = False
+        if already_finished or fallback_dispatched:
+            reason = (f"Schnitt fuer Run {source_run.run_id} bereits gestartet"
+                      if already_finished else f"GitHub-Fallback fuer Run {source_run.run_id} bereits gestartet")
+            report["actions"] = [Action("none", reason=reason).to_dict()]
+            return report
+        kaggle = kaggle or kaggle_client.KaggleClient()
+        try:
+            kernel_state = kaggle.kernel_status(state["kernel"])
+            kernel_status = kernel_state.status.upper()
+            if "COMPLETE" in kernel_status:
+                action = Action("dispatch", FINISH_WORKFLOW,
+                                reason="Asynchroner Kaggle-Render abgeschlossen",
+                                inputs={"run_id": source_run.run_id,
+                                        "kaggle_kernel": state["kernel"]})
+            elif any(word in kernel_status for word in ("ERROR", "CANCEL", "FAILED")):
+                action = Action("dispatch", RENDER_WORKFLOW,
+                                reason="Asynchroner Kaggle-Render fehlgeschlagen - GitHub-Fallback",
+                                inputs={"render_target": "github", "quality": "preview",
+                                        "shots": "all", "subtitles": "auto",
+                                        "source_run_id": source_run.run_id})
+            else:
+                action = Action("none", reason=f"Kaggle-Kernel laeuft: {kernel_status}")
+        except kaggle_client.KaggleError as exc:
+            report["kaggle_error"] = str(exc)
+            action = Action("none", reason="Kaggle-Status derzeit nicht abrufbar")
+        report["actions"] = [action.to_dict()]
+        if execute and action.kind == "dispatch":
+            report["executed"].append({"action": action.to_dict(),
+                                        "ok": gh.dispatch(action.workflow, action.inputs,
+                                                          ref=os.environ.get("GITHUB_REF_NAME") or None)})
         return report
 
     state: dict = {}
@@ -252,7 +309,8 @@ def watchdog(repo_state_dir: Path = Path("render_output"), max_run_minutes: int 
         if not execute:
             continue
         if action.kind == "dispatch" and action.workflow:
-            ok = gh.dispatch(action.workflow, action.inputs)
+            ok = gh.dispatch(action.workflow, action.inputs,
+                             ref=os.environ.get("GITHUB_REF_NAME") or None)
             report["executed"].append({"action": action.to_dict(), "ok": ok})
         elif action.kind == "cancel" and action.run_id:
             ok = gh.cancel(action.run_id)

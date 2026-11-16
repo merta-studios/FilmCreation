@@ -81,9 +81,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # 3. Sprache + Wortzeiten.
     if not (args.reuse_audio and timeline_path.is_file()):
-        timeline = generate_timeline.generate(
+        generated = generate_timeline.generate(
             film_dir=args.film_dir, out_dir=args.session_dir,
             skip_credit_check=args.skip_credit_check)
+        timeline = generated["timeline"]
     else:
         timeline = timeline_sync.load_timeline(timeline_path)
         print(f"Audio wiederverwendet: {timeline_path}")
@@ -127,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         report=args.out_dir / "film_info.md",
         shots_dir=shots_dir)
     print(f"Fertig: {final}")
-    for key in ("duration", "frames", "size_bytes"):
+    for key in ("duration", "frames", "size_mb"):
         if key in info:
             print(f"  {key}: {info[key]}")
     return 0

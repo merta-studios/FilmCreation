@@ -213,6 +213,7 @@ TEXTURE_CATALOG: dict[str, dict] = {
     "classic_sand": dict(era="classic", pattern="sand", base="#D7C59A", roughness=0.86, scale=4),
     "classic_foil": dict(era="classic", pattern="foil", base="#D5D5D5", roughness=0.32, scale=2),
     "classic_ice": dict(era="classic", pattern="ice", base="#BBE6F0", roughness=0.18, scale=2),
+    "classic_fabric": dict(era="classic", pattern="fabric", base="#7C5C63", roughness=0.88, scale=4),
     # --- Modern ---------------------------------------------------------- #
     "smooth_plastic": dict(era="modern", pattern="plastic", base="#E5E4DE", roughness=0.3, scale=1),
     "plastic": dict(era="modern", pattern="plastic", base="#B4D2E3", roughness=0.42, scale=1),
@@ -291,7 +292,7 @@ def texture_for_material(material: str, era: str = "modern") -> str:
             "asphalt": "classic_slate", "plaster": "classic_plastic",
             "roofshingles": "classic_slate", "leafygrass": "classic_grass",
             "ground": "classic_sand", "mud": "classic_sand", "snow": "classic_ice",
-            "fabric": "classic_plastic", "carpet": "classic_fabric",
+            "fabric": "classic_fabric", "carpet": "classic_fabric",
             "cardboard": "classic_wood", "glass": "classic_ice", "neon": "classic_plastic",
             "water": "classic_ice",
         }

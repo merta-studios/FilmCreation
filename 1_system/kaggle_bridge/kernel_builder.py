@@ -58,6 +58,7 @@ WORK = Path("/kaggle/working")
 REPO = WORK / "repo"
 SESSION = WORK / "session"
 SHOTS_DIR = WORK / "shots"
+WORKERS_DIR = WORK / "workers"
 LOGS = WORK / "logs"
 
 
@@ -171,7 +172,7 @@ def worker_command(mode, blender, ids):
     args = ["--film-dir", str(REPO / "2_aktueller_film"),
             "--timeline", str(SESSION / "timeline_resolved.json"),
             "--shots", shots,
-            "--out-dir", str(SHOTS_DIR),
+            "--out-dir", str(WORKERS_DIR / f"worker_{ids[0]}") / "shots",
             "--samples", str(SAMPLES)]
     if QUALITY:
         args += ["--quality", QUALITY]
@@ -186,7 +187,8 @@ def worker_command(mode, blender, ids):
 def merge_manifests():
     entries = {}
     meta = {"fps": 24, "width": 1080, "height": 1920, "film": ""}
-    for manifest in sorted(SHOTS_DIR.glob("render_manifest*.json")):
+    manifests = sorted(WORKERS_DIR.glob("worker_*/shots/render_manifest*.json"))
+    for manifest in manifests:
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
         except (ValueError, OSError):
@@ -198,11 +200,14 @@ def merge_manifests():
         for entry in data.get("shots", []):
             path = Path(entry.get("path", ""))
             if not path.is_absolute():
-                candidate = SHOTS_DIR / path.name
-                path = candidate if candidate.is_file() else path
+                candidates = (manifest.parent / path.name, SHOTS_DIR / path.name)
+                path = next((candidate for candidate in candidates if candidate.is_file()), path)
             if path.is_file():
                 entry = dict(entry)
-                entry["path"] = str(path)
+                destination = SHOTS_DIR / path.name
+                if path.resolve() != destination.resolve():
+                    shutil.copy2(path, destination)
+                entry["path"] = str(destination)
                 entries[int(entry["id"])] = entry
     merged = {**meta, "shots": [entries[key] for key in sorted(entries)]}
     target = SHOTS_DIR / "render_manifest.json"
@@ -224,9 +229,18 @@ def main():
     all_ids = shot_ids_from_timeline()
     wanted = split_shot_spec() or all_ids
     wanted = [shot for shot in wanted if shot in all_ids]
-    log(f"{len(wanted)} Shots auf {WORKERS} Worker: {wanted}")
+    gpu_count = 0
+    try:
+        probe = subprocess.run(["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+                               capture_output=True, text=True, timeout=20)
+        if probe.returncode == 0:
+            gpu_count = len([line for line in probe.stdout.splitlines() if line.strip()])
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    worker_count = max(1, min(int(WORKERS), gpu_count or 1))
+    log(f"{len(wanted)} Shots auf {worker_count} Worker ({gpu_count} GPUs erkannt): {wanted}")
 
-    buckets = [[] for _ in range(max(1, WORKERS))]
+    buckets = [[] for _ in range(worker_count)]
     for position, shot in enumerate(wanted):
         buckets[position % len(buckets)].append(shot)
 
@@ -271,7 +285,8 @@ def main():
         "workers": {str(key): value for key, value in codes.items()},
         "kernel": "%%KERNEL_SLUG%%",
         "duration_seconds": round(time.time() - started, 1),
-    }
+        "worker_manifests": [str(path) for path in WORKERS_DIR.glob("worker_*/shots/render_manifest*.json")],
+        }
     (WORK / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=2),
                                      encoding="utf-8")
     log(f"Fertig: {len(rendered)} Shots, fehlend: {missing}")

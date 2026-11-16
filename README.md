@@ -53,8 +53,9 @@ Fehlerbehebung: `EINRICHTUNG.md`.
 * **Licht**: 8 Stimmungen, Regen/Nebel/Partikel, Vignette, AgX-Look.
 * **Ton**: mehrere ElevenLabs-Keys mit Rotation, prozedurale SFX (20), Musik (7
   Stimmungen), Ducking, −14 LUFS, wortgenaue Karaoke-Untertitel.
-* **Render**: Kaggle T4×2 parallel mit Watchdog-Fallback auf GitHub, wiederaufsetzbar
-  pro Shot, Manifest-Merge, Shot-Vollständigkeitsprüfung.
+* **Render**: Kaggle mit dynamischer GPU-Erkennung, getrennten Worker-Ausgaben,
+  asynchronem GitHub-Watchdog und GitHub-Fallback; Manifest-Merge und
+  Shot-Vollständigkeitsprüfung.
 * **Schnitt**: 1080×1920 @ 24 fps, hart geprüft, Release automatisch.
 
 ## Grenzen

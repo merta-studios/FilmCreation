@@ -31,10 +31,6 @@ on:
         description: "Qualitaet wurde in Workflow 1 gesetzt (nur Info)"
         default: auto
         required: false
-  workflow_run:
-    workflows: ["1 - Film rendern"]
-    types: [completed]
-
 permissions:
   contents: write
   actions: read
@@ -52,9 +48,6 @@ jobs:
     name: Schnitt, Ton, Untertitel, Release
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     env:
       SOURCE_RUN: ${{ inputs.run_id || github.event.workflow_run.id }}
       KERNEL_SLUG: ${{ inputs.kaggle_kernel || '' }}

@@ -571,6 +571,26 @@ def apply_clip(character: dict, clip: Clip, start_frame: int, *,
             pose_bone.rotation_euler = tuple(_math.radians(v) for v in rotation)
             pose_bone.keyframe_insert("rotation_euler", frame=frame)
             written += 1
+        offsets: dict[str, list[float]] = {}
+        for current_clip, weight in clips:
+            if weight <= 0 or not current_clip.location:
+                continue
+            for bone_name, offset in current_clip.sample_offsets(local).items():
+                offsets.setdefault(bone_name, [0.0, 0.0, 0.0])
+                for i in range(3):
+                    offsets[bone_name][i] += offset[i] * weight
+        for bone_name, offset_vec in offsets.items():
+            pose_bone = bones.get(bone_name)
+            if pose_bone is None:
+                continue
+            pose_bone.location = (offset_vec[0], offset_vec[1], offset_vec[2])
+            pose_bone.keyframe_insert("location", frame=frame)
+            written += 1
+
+    # Natuerliches Blinzeln waehrend des Clips, wenn Alive-Layer aktiv ist
+    if alive:
+        for bf in blink_frames(start_frame, end_frame, seed):
+            _rig.blink(character, bf)
 
     # Gesichtswechsel des Clips anwenden
     face_events = 0
@@ -599,6 +619,9 @@ def key_face(character: dict, face_name: str, frame: int) -> None:
     for eye in character.get("eyes") or []:
         eye.keyframe_insert("scale", frame=frame)
         eye.keyframe_insert("location", frame=frame)
+    for pupil in character.get("pupils") or []:
+        pupil.keyframe_insert("scale", frame=frame)
+        pupil.keyframe_insert("location", frame=frame)
     mouth = character.get("mouth")
     if mouth is not None:
         mouth.keyframe_insert("scale", frame=frame)

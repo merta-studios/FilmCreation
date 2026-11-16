@@ -102,6 +102,8 @@ def test_dataset_folder_and_slug(tmp_path):
     (session / "timeline_resolved.json").write_text('{"fps": 24}', encoding="utf-8")
     (session / "film_info.md").write_text("info", encoding="utf-8")
     (session / "audio" / "seg_001.mp3").write_bytes(b"audio")
+    (session / "roblox_assets").mkdir()
+    (session / "roblox_assets" / "mesh_123.mesh").write_bytes(b"mesh")
     slug = dataset.prepared_slug("Max-Mustermann", "12345")
     assert slug.startswith("max-mustermann/") and slug.endswith("-12345")
     assert dataset.dataset_slug("Max-Mustermann", "Render Session!!") == "max-mustermann/render-session"
@@ -109,6 +111,7 @@ def test_dataset_folder_and_slug(tmp_path):
     assert (folder / "dataset-metadata.json").is_file()
     assert (folder / "timeline_resolved.json").is_file()
     assert (folder / "audio" / "seg_001.mp3").is_file()
+    assert (folder / "roblox_assets" / "mesh_123.mesh").is_file()
     staged = dataset.stage_session(folder, tmp_path / "staged")
     assert (staged / "timeline_resolved.json").is_file()
 

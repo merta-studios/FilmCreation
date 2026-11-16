@@ -276,6 +276,19 @@ class CameraRig:
                 h = height - self.subject_height * 0.45 + self.subject_height * 0.5 * eased
                 a = azimuth + 5.0 * eased
             elif move == "spline_drift":
+                raw_pts = spec.get("points")
+                if not raw_pts and spec.get("start") and spec.get("end"):
+                    raw_pts = [spec["start"], spec["end"]]
+                if isinstance(raw_pts, (list, tuple)) and len(raw_pts) >= 2:
+                    pts = [(float(p[0]), float(p[1]), float(p[2])) for p in raw_pts]
+                    seg_pos = eased * (len(pts) - 1)
+                    idx = min(len(pts) - 2, int(seg_pos))
+                    lt = _smoothstep(seg_pos - idx)
+                    return (
+                        pts[idx][0] + (pts[idx + 1][0] - pts[idx][0]) * lt,
+                        pts[idx][1] + (pts[idx + 1][1] - pts[idx][1]) * lt,
+                        max(0.25, pts[idx][2] + (pts[idx + 1][2] - pts[idx][2]) * lt),
+                    )
                 d = distance * (1.0 + 0.10 * math.sin(eased * math.pi))
                 h = height + 0.35 * math.sin(eased * math.pi * 1.2)
                 a = azimuth + 22.0 * eased

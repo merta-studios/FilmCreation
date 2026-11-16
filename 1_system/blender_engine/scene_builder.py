@@ -145,22 +145,22 @@ class SceneBuilder:
             if entry.get("hidden"):
                 character["root"].hide_render = True
             placed[str(spec.get("id"))] = character
-            if entry.get("accessories"):
-                self._attach_accessories(character, entry["accessories"], collection)
+            combined_accessories = list(spec.get("accessories") or []) + list(entry.get("accessories") or [])
+            if combined_accessories:
+                self._attach_accessories(character, combined_accessories, collection)
         return placed
 
     def _attach_accessories(self, character: dict, accessories: list, collection) -> None:
-        """Haengt konvertierte Katalog-Artikel an Standard-Attachments."""
+        """Haengt Katalog-/Creator-Store-Artikel an Standard-Attachments."""
         for accessory in accessories:
-            path = accessory.get("path") or accessory.get("file")
+            resolved = primitives.resolve_roblox_asset_path(accessory)
             slot = accessory.get("slot", "HatAttachment")
-            if not path or not Path(path).is_file():
+            if resolved is None:
                 log(f"Hinweis: Accessoire ohne Datei uebersprungen ({accessory.get('id', '?')})")
                 continue
             world = primitives.WorldBuilder(collection)
             obj = world.import_model(f"{character['name']}_{accessory.get('id', 'acc')}",
-                                     Path(path), pos=(0, 0, 0),
-                                     scale=float(accessory.get("scale", 1.0)))
+                                     resolved, pos=(0, 0, 0), scale=1.0)
             if obj is not None:
                 rig_r15.attach_to_slot(character, slot, obj,
                                        float(accessory.get("scale", 1.0)),
@@ -190,9 +190,16 @@ class SceneBuilder:
             primitives.build_spec(entries, world)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Map-Aufbau fehlgeschlagen in Shot {shot_id}: {exc}") from exc
+        map_mod = self.film.modules.get("map_and_props")
+        if map_mod is not None:
+            optional_build = getattr(map_mod, "OPTIONAL_MAP_BUILD", None)
+            if isinstance(optional_build, str):
+                optional_build = getattr(map_mod, optional_build, None)
+            if callable(optional_build):
+                optional_build(world)
         build_hook = shot_spec.get("map_hook")
-        if build_hook:
-            function = getattr(self.film.modules["map_and_props"], str(build_hook), None)
+        if build_hook and map_mod is not None:
+            function = getattr(map_mod, str(build_hook), None)
             if callable(function):
                 function(world)
         return world
@@ -274,7 +281,7 @@ class SceneBuilder:
                 animations.apply_clip(character, clip, start_frame=frame,
                                       duration=int(trigger.get("duration", clip.duration)))
             elif action == "statue" and character:
-                rig_r15.set_stone(character, True)
+                rig_r15.set_stone(character, True, frame=frame)
             elif action == "camera_focal":
                 camera = bpy.context.scene.camera
                 camera.data.lens = float(value)

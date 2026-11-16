@@ -49,24 +49,28 @@ def mix(film, timeline: dict, output: Path, work_dir: Path,
     music = config.get("musik") or {}
     mood = str(music.get("mood") or "melancholisch")
     music_gain = float(music.get("gain_db", -20.0))
+    auto_ducking = bool(music.get("auto_ducking", True))
+    loudness_target = float(config.get("master_lufs", sound_design.TARGET_LUFS))
     sfx_gain = float(config.get("sfx_gain_db", -14.0))
     events = sound_design.build_sfx_events(timeline, film.shots, {"sfx_gain_db": sfx_gain})
     report = sound_design.mix_master_audio(
         timeline, output, work_dir, music_mood=mood, music_gain_db=music_gain,
-        sfx_events=events, keep_stems=keep_stems)
+        sfx_events=events, loudness_target=loudness_target,
+        auto_ducking=auto_ducking, keep_stems=keep_stems)
     report["sfx_kinds"] = sorted({event.kind for event in events})
     report["music_mood"] = mood
 
     if subtitle_path is not None and film.subtitles:
         style_cfg = config.get("untertitel_stil") or {}
+        safe_cfg = config.get("safe_zone") or {}
         font_key = str(style_cfg.get("font", "inter"))
-        resolved = font_manager.resolve(font_key, allow_download=False)
-        font_name = (resolved.stem.split("[")[0].replace("_", " ")
-                     if resolved else "DejaVu Sans")
+        font_name = font_manager.font_family_for_ass(font_key, allow_download=True)
         style = sound_design.SubtitleStyle(
             font=font_name,
             font_size=int(style_cfg.get("size", 62)),
-            highlight=_ass_color(style_cfg.get("highlight", "#FFD700")))
+            highlight=_ass_color(style_cfg.get("highlight", "#FFD700")),
+            margin_v=int(safe_cfg.get("bottom_px", sound_design.SAFE_ZONE_BOTTOM_PX)),
+        )
         ass = sound_design.build_tiktok_subtitles(timeline, Path(subtitle_path),
                                                   style=style)
         report["subtitles"] = str(ass)

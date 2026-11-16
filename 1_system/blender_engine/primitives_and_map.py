@@ -200,11 +200,11 @@ def _boxes_mesh(name: str, boxes: Sequence[tuple[tuple, tuple]], material, colle
             for dy in (-1, 1):
                 for dx in (-1, 1):
                     verts.append((cx + dx * sx, cy + dy * sy, cz + dz * sz))
-        # 8 Ecken in Reihenfolge (dz, dy, dx)
+        # 8 Ecken in Reihenfolge (dz, dy, dx) - Normalen zeigen nach aussen
         quads = [
-            (0, 1, 3, 2), (4, 6, 7, 5),   # unten / oben
-            (0, 4, 5, 1), (2, 3, 7, 6),   # -z / +z ... konsistent gewickelt
-            (0, 2, 6, 4), (1, 5, 7, 3),
+            (2, 3, 1, 0), (5, 7, 6, 4),   # unten (-z) / oben (+z)
+            (1, 5, 4, 0), (6, 7, 3, 2),   # vorn (-y) / hinten (+y)
+            (4, 6, 2, 0), (3, 7, 5, 1),   # links (-x) / rechts (+x)
         ]
         for quad in quads:
             faces.append(tuple(base + i for i in quad))
@@ -903,34 +903,62 @@ class WorldBuilder:
     # -- Importe --------------------------------------------------------- #
     def import_model(self, name: str, path: Path, pos=(0, 0, 0), scale: float = 1.0,
                      rotation_z: float = 0.0, collection=None):
-        """Importiert OBJ/glTF/FBX (konvertierte Roblox-Modelle) und registriert sie."""
+        """Importiert RBXM/RBXMX/OBJ/glTF/FBX und registriert das Modell."""
         require_bpy()
         path = Path(path)
         if not path.is_file():
             raise FileNotFoundError(f"Modell fehlt: {path}")
-        before = set(bpy.data.objects)
+        target_col = collection or self.collection
         suffix = path.suffix.lower()
-        if suffix == ".obj":
-            bpy.ops.wm.obj_import(filepath=str(path))
-        elif suffix in (".gltf", ".glb"):
-            bpy.ops.import_scene.gltf(filepath=str(path))
-        elif suffix == ".fbx":
-            bpy.ops.import_scene.fbx(filepath=str(path))
+        if suffix in (".rbxm", ".rbxmx"):
+            rbxm_mod = importlib.import_module("1_system.roblox_api.rbxm_parser")
+            parser = rbxm_mod.RbxmParser()
+            model = parser.parse_file(path)
+            bounds = model.bounds()
+            centre = [(bounds["min"][i] + bounds["max"][i]) / 2 for i in range(3)]
+            imported = parser.import_into_blender(
+                model, collection=target_col,
+                offset=(-centre[0], -centre[2], -centre[1]),
+                scale=1.0, mesh_dir=path.parent,
+                material_factory=lambda part: self._material_for(
+                    None,
+                    "#{:02X}{:02X}{:02X}".format(
+                        *(max(0, min(255, int(round(c * 255)))) for c in (part.color or (0.64, 0.64, 0.64)))),
+                    part.material, 0.6, None),
+            )
         else:
-            raise ValueError(f"Nicht unterstuetztes Format: {suffix}")
-        imported = [obj for obj in bpy.data.objects if obj not in before]
-        parent = None
-        for index, obj in enumerate(imported):
-            if obj.users_collection:
-                for link in list(obj.users_collection):
-                    link.objects.unlink(obj)
-            self.collection.objects.link(obj)
-            obj.name = f"{name}_{index}" if index else name
-            parent = parent or obj
-        if parent is not None:
-            parent.location = pos
-            parent.scale = (scale, scale, scale)
-            parent.rotation_euler = (0.0, 0.0, math.radians(rotation_z))
+            before = set(bpy.data.objects)
+            if suffix == ".obj":
+                bpy.ops.wm.obj_import(filepath=str(path))
+            elif suffix in (".gltf", ".glb"):
+                bpy.ops.import_scene.gltf(filepath=str(path))
+            elif suffix == ".fbx":
+                bpy.ops.import_scene.fbx(filepath=str(path))
+            else:
+                raise ValueError(f"Nicht unterstuetztes Format: {suffix}")
+            imported = [obj for obj in bpy.data.objects if obj not in before]
+            for index, obj in enumerate(imported):
+                if obj.users_collection:
+                    for link in list(obj.users_collection):
+                        link.objects.unlink(obj)
+                target_col.objects.link(obj)
+                obj.name = f"{name}_{index}" if len(imported) > 1 else name
+        if not imported:
+            return None
+        if len(imported) == 1:
+            parent = imported[0]
+            parent.name = name
+        else:
+            parent = bpy.data.objects.new(name, None)
+            parent.empty_display_type = "PLAIN_AXES"
+            parent.empty_display_size = 0.25
+            target_col.objects.link(parent)
+            for obj in imported:
+                if obj.parent is None:
+                    obj.parent = parent
+        parent.location = pos
+        parent.scale = (scale, scale, scale)
+        parent.rotation_euler = (0.0, 0.0, math.radians(rotation_z))
         return self._register(name, parent)
 
     # -- Spezielle Formen aus anderen Modulen ---------------------------- #
@@ -951,9 +979,31 @@ class WorldBuilder:
         return module.make_billboard_counter(character, text, **kwargs)
 
 
-# --------------------------------------------------------------------------- #
-# Declarative maps (map_and_props.py)
-# --------------------------------------------------------------------------- #
+def resolve_roblox_asset_path(spec: dict) -> Optional[Path]:
+    """Sucht die Modelldatei zu einem Creator-Store-/Katalog-Eintrag (offline-faehig)."""
+    explicit = spec.get("path") or spec.get("file")
+    if explicit and Path(explicit).is_file():
+        return Path(explicit)
+    asset_id = spec.get("id") or spec.get("asset_id")
+    if asset_id is not None:
+        for folder in (Path("assets/models"), Path("render_session/roblox_assets"),
+                       Path("assets_cache/roblox")):
+            for name in (f"{asset_id}.glb", f"{asset_id}.gltf", f"model_{asset_id}.glb",
+                         f"{asset_id}.rbxm", f"model_{asset_id}.rbxm",
+                         f"{asset_id}.rbxmx", f"model_{asset_id}.rbxmx",
+                         f"{asset_id}.obj", f"model_{asset_id}.obj", f"thumb3d_{asset_id}.obj"):
+                candidate = folder / name
+                if candidate.is_file():
+                    return candidate
+    if explicit:
+        # Auch nach Dateinamen im gestagten Session-Ordner schauen
+        base = Path(explicit).name
+        for folder in (Path("render_session/roblox_assets"), Path("assets/models"),
+                       Path("assets_cache/roblox")):
+            candidate = folder / base
+            if candidate.is_file():
+                return candidate
+    return None
 def build_spec(entries: Sequence[dict], world: WorldBuilder) -> list[str]:
     """Baut eine deklarative Objektliste (``OBJECTS`` aus map_and_props.py).
 
@@ -989,7 +1039,11 @@ def build_spec(entries: Sequence[dict], world: WorldBuilder) -> list[str]:
             rotation = params.pop("rotation", (0, 0, 0))
             models[model_name](world, pos=pos, rotation=rotation, **params)
         elif shape == "creator_store":
-            world.import_model(name, Path(entry["path"]), pos=entry.get("pos", (0, 0, 0)),
+            resolved_path = resolve_roblox_asset_path(entry)
+            if resolved_path is None:
+                raise FileNotFoundError(
+                    f"Creator-Store-Modell '{name}' fehlt: {entry.get('path') or entry.get('id')}")
+            world.import_model(name, resolved_path, pos=entry.get("pos", (0, 0, 0)),
                                scale=float(entry.get("scale", 1.0)),
                                rotation_z=float(entry.get("rotation_z", 0.0)))
         else:
